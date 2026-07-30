@@ -41,3 +41,19 @@ relations:
   - [temporal-k8s:visibility, postgresql-k8s:database]
   - [temporal-admin-k8s:admin, temporal-k8s:admin]
   - [watchtower-k8s:temporal-host-info, temporal-k8s:temporal-host-info]
+
+# ── Post-deploy: create the Temporal default namespace ──────────────────────
+#
+# temporal-admin-k8s is supposed to create the default namespace automatically,
+# but a bug in its pebble layer causes the healthcheck (pgrep temporal-server)
+# to fail permanently: the temporal-server process runs in the temporal-k8s pod,
+# not in temporal-admin-k8s. This keeps the init service inactive indefinitely.
+#
+# After `juju deploy ./bundle.yaml` completes and all units are active/idle,
+# run this once to create the namespace via the charm's built-in cli action:
+#
+#   juju run temporal-admin-k8s/0 cli \
+#       args="operator namespace create default"
+#
+# This is idempotent — safe to re-run; Temporal will reject duplicates cleanly.
+# The `make deploy` target automates bundle deploy + this step end-to-end.
