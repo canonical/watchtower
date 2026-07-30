@@ -1,7 +1,7 @@
 # This file configures Charmcraft.
 # See https://juju.is/docs/sdk/charmcraft-config for guidance.
 
-name: watchtower
+name: watchtower-k8s
 type: charm
 title: Watchtower
 summary: Ubuntu image build pipeline monitor

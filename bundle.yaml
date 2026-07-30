@@ -1,5 +1,5 @@
 bundle: kubernetes
-name: watchtower-bundle
+name: watchtower-k8s-bundle
 description: |
   Full-stack Watchtower: Temporal Server + PostgreSQL + Watchtower bot.
   Temporal Admin initialises the default namespace after the server is
@@ -28,8 +28,8 @@ applications:
     scale: 1
     trust: true
 
-  watchtower:
-    charm: ./charm/watchtower_amd64.charm
+  watchtower-k8s:
+    charm: ./charm/watchtower-k8s_amd64.charm
     scale: 1
     resources:
       # Points to the MicroK8s local registry; update when a real
@@ -40,4 +40,4 @@ relations:
   - [temporal-k8s:db, postgresql-k8s:database]
   - [temporal-k8s:visibility, postgresql-k8s:database]
   - [temporal-admin-k8s:admin, temporal-k8s:admin]
-  - [watchtower:temporal-host-info, temporal-k8s:temporal-host-info]
+  - [watchtower-k8s:temporal-host-info, temporal-k8s:temporal-host-info]

@@ -9,7 +9,7 @@ ROCK_IMAGE   ?= localhost:32000/watchtower:$(ROCK_VERSION)
 ROCK_FILE    ?= watchtower_$(ROCK_VERSION)_amd64.rock
 
 # Charm file produced by charmcraft pack
-CHARM_FILE ?= $(CURDIR)/charm/watchtower_amd64.charm
+CHARM_FILE ?= $(CURDIR)/charm/watchtower-k8s_amd64.charm
 
 ## ── Local build ────────────────────────────────────────────────────────────
 
@@ -88,15 +88,15 @@ charm-pack:
 	cd charm && CHARMCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=true charmcraft clean
 	cd charm && CHARMCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=true charmcraft pack
 
-## Push a new image and refresh the running watchtower charm in Juju.
+## Push a new image and refresh the running watchtower-k8s charm in Juju.
 ## Resolves any hook error before and after the refresh.
 charm-refresh: rock charm-pack
-	juju resolve watchtower/0 2>/dev/null || true
-	juju refresh watchtower \
+	juju resolve watchtower-k8s/0 2>/dev/null || true
+	juju refresh watchtower-k8s \
 		--path=$(CHARM_FILE) \
 		--resource app-image=$(ROCK_IMAGE)
 	sleep 5
-	juju resolve watchtower/0 2>/dev/null || true
+	juju resolve watchtower-k8s/0 2>/dev/null || true
 
 ## ── Juju observability helpers ──────────────────────────────────────────────
 
