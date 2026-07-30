@@ -29,6 +29,14 @@ config:
       description: User ID of the Mattermost bot account
       type: string
       default: ""
+    mattermost-bot-token-secret-id:
+      description: |
+        Juju user secret ID holding the Mattermost bot token.
+        Create with: juju secret add mattermost-bot-token value=<token>
+        then grant:  juju grant-secret <secret-id> watchtower-k8s
+        then set:    juju config watchtower-k8s \
+                       mattermost-bot-token-secret-id=<secret-id>
+      type: secret
     watchtower-keyword:
       description: Trigger keyword for the bot (default @watchtower)
       type: string
@@ -85,6 +93,14 @@ config:
       description: OpenRouter model slug for LLM-assisted analysis
       type: string
       default: "openai/gpt-4o-mini"
+    openrouter-api-key-secret-id:
+      description: |
+        Juju user secret ID holding the OpenRouter API key.
+        Create with: juju secret add openrouter-api-key value=<key>
+        then grant:  juju grant-secret <secret-id> watchtower-k8s
+        then set:    juju config watchtower-k8s \
+                       openrouter-api-key-secret-id=<secret-id>
+      type: secret
 
 requires:
   temporal-host-info:

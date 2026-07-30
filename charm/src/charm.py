@@ -18,18 +18,13 @@ from charms.temporal_k8s.v0.temporal_host_info import (
 
 logger = logging.getLogger(__name__)
 
-# Mapping from Juju config option name (kebab-case) to the env var
-# name the Go app actually reads.  The go-framework extension would
-# normally inject these as APP_<UPPER> but config.go reads the bare
-# names, so we override the prefix to "" in _create_app().
-#
-# Additionally, two secrets are injected at runtime and are never
-# stored as plain config options:
-#   mattermost-bot-token -> MATTERMOST_BOT_TOKEN
-#   openrouter-api-key   -> OPENROUTER_API_KEY
-_SECRET_LABELS = {
-    "mattermost-bot-token": "MATTERMOST_BOT_TOKEN",
-    "openrouter-api-key": "OPENROUTER_API_KEY",
+# Mapping from charmcraft.yaml config option name (type: secret) to the
+# env var name the Go app reads.  Each config option holds a Juju secret
+# URI; the charm retrieves the secret by that URI and injects its "value"
+# field as the corresponding env var.
+_SECRET_CONFIG_OPTIONS: dict[str, str] = {
+    "mattermost-bot-token-secret-id": "MATTERMOST_BOT_TOKEN",
+    "openrouter-api-key-secret-id": "OPENROUTER_API_KEY",
 }
 
 
@@ -168,34 +163,51 @@ class WatchtowerCharm(paas_charm.go.Charm):
         return {}
 
     def _secrets_env(self) -> dict[str, str]:
-        """Read Juju secrets and return their env var values.
+        """Read Juju secrets via config-option IDs and return env var values.
 
-        Secrets are looked up by label; missing secrets are silently skipped.
+        Each secret config option holds a Juju secret URI.  The charm
+        fetches the secret by that URI and maps its "value" field to the
+        corresponding env var.  Missing or unset options are silently
+        skipped.
 
         Returns:
             Dict of env var name -> secret value for each configured secret.
         """
         result: dict[str, str] = {}
-        for label, env_var in _SECRET_LABELS.items():
-            value = self._get_secret_value(label)
+        for config_key, env_var in _SECRET_CONFIG_OPTIONS.items():
+            value = self._get_secret_value_from_config(config_key)
             if value is not None:
                 result[env_var] = value
         return result
 
-    def _get_secret_value(self, label: str) -> str | None:
-        """Retrieve the 'value' field of a Juju secret by label.
+    def _get_secret_value_from_config(
+        self, config_key: str
+    ) -> str | None:
+        """Retrieve the 'value' field of a Juju secret via a config option.
 
         Args:
-            label: the Juju secret label.
+            config_key: charmcraft.yaml config option of type ``secret``
+                        whose value is a Juju secret URI/ID.
 
         Returns:
-            The secret value string, or None if the secret is absent.
+            The secret value string, or None if the option is unset or
+            the secret cannot be read.
         """
+        secret_id = self.config.get(config_key)
+        if not secret_id:
+            logger.debug(
+                "config option %r is unset, skipping secret", config_key
+            )
+            return None
         try:
-            secret = self.model.get_secret(label=label)
+            secret = self.model.get_secret(id=secret_id)
             return secret.get_content(refresh=True).get("value")
         except ops.SecretNotFoundError:
-            logger.debug("secret %r not found, skipping", label)
+            logger.warning(
+                "secret %r (from config %r) not found",
+                secret_id,
+                config_key,
+            )
             return None
 
 
