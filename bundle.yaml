@@ -34,7 +34,7 @@ applications:
     resources:
       # Points to the MicroK8s local registry; update when a real
       # registry is available (see Open decisions in CHARM_PLAN.md).
-      app-image: localhost:32000/watchtower:0.2
+      app-image: localhost:32000/watchtower:0.3
 
 relations:
   - [temporal-k8s:db, postgresql-k8s:database]

@@ -4,7 +4,7 @@
 BOT = bin/bot
 
 # OCI image tag pushed to the MicroK8s local registry
-ROCK_VERSION ?= 0.2
+ROCK_VERSION ?= 0.3
 ROCK_IMAGE   ?= localhost:32000/watchtower:$(ROCK_VERSION)
 ROCK_FILE    ?= watchtower_$(ROCK_VERSION)_amd64.rock
 

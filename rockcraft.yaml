@@ -1,7 +1,7 @@
 name: watchtower
 base: bare
 build-base: ubuntu@24.04
-version: '0.2'
+version: '0.3'
 summary: Ubuntu image build pipeline monitor
 description: |
   Watchtower monitors Ubuntu image build pipelines via proactive
