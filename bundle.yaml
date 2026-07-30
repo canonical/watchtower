@@ -1,0 +1,43 @@
+bundle: kubernetes
+name: watchtower-bundle
+description: |
+  Full-stack Watchtower: Temporal Server + PostgreSQL + Watchtower bot.
+  Temporal Admin initialises the default namespace after the server is
+  up; without it workflows cannot be registered.
+
+applications:
+
+  postgresql-k8s:
+    charm: postgresql-k8s
+    channel: 14/stable
+    scale: 1
+    trust: true
+
+  temporal-k8s:
+    charm: temporal-k8s
+    channel: 1.23/stable
+    scale: 1
+    trust: true
+    options:
+      services: frontend,history,matching,worker
+      num-history-shards: 1
+
+  temporal-admin-k8s:
+    charm: temporal-admin-k8s
+    channel: 1.23/stable
+    scale: 1
+    trust: true
+
+  watchtower:
+    charm: ./charm/watchtower_amd64.charm
+    scale: 1
+    resources:
+      # Points to the MicroK8s local registry; update when a real
+      # registry is available (see Open decisions in CHARM_PLAN.md).
+      app-image: localhost:32000/watchtower:0.2
+
+relations:
+  - [temporal-k8s:db, postgresql-k8s:database]
+  - [temporal-k8s:visibility, postgresql-k8s:database]
+  - [temporal-admin-k8s:admin, temporal-k8s:admin]
+  - [watchtower:temporal-host-info, temporal-k8s:temporal-host-info]

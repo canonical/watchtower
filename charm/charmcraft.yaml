@@ -1,0 +1,93 @@
+# This file configures Charmcraft.
+# See https://juju.is/docs/sdk/charmcraft-config for guidance.
+
+name: watchtower
+type: charm
+title: Watchtower
+summary: Ubuntu image build pipeline monitor
+description: |
+  Watchtower monitors Ubuntu image build pipelines via proactive
+  Temporal cron workflows and a reactive Mattermost bot.
+
+base: ubuntu@24.04
+
+platforms:
+  amd64:
+  arm64:
+
+extensions:
+  - go-framework
+
+config:
+  options:
+    # --- Mattermost ---
+    mattermost-server-url:
+      description: Base URL of the Mattermost server (e.g. http://mm.example.com:8065)
+      type: string
+      default: ""
+    mattermost-bot-user-id:
+      description: User ID of the Mattermost bot account
+      type: string
+      default: ""
+    watchtower-keyword:
+      description: Trigger keyword for the bot (default @watchtower)
+      type: string
+      default: "@watchtower"
+    mattermost-broadcast-channel-ids:
+      description: |
+        Comma-separated Mattermost channel IDs for proactive summaries.
+        Empty = all joined channels.
+      type: string
+      default: ""
+    mattermost-reconnect-delay:
+      description: WebSocket reconnect delay (e.g. 5s, 1m)
+      type: string
+      default: "5s"
+    # --- Test Observer ---
+    test-observer-url:
+      description: Ubuntu Test Observer API base URL
+      type: string
+      default: "https://tests-api.ubuntu.com"
+    # --- Scope ---
+    watchtower-releases-scope:
+      description: |
+        Comma-separated ordered list of Ubuntu releases to scope all
+        operations. Empty = all releases.
+      type: string
+      default: ""
+    summary-for-products:
+      description: |
+        Comma-separated OS/product names for summary filtering.
+        Empty = all products.
+      type: string
+      default: ""
+    # --- Cron schedules ---
+    refresh-cron-schedule:
+      description: Cron schedule for dataset refresh (default every 30 min)
+      type: string
+      default: "*/30 * * * *"
+    summary-cron-schedule:
+      description: Cron schedule for proactive build summaries
+      type: string
+      default: "0 7,15,23 * * *"
+    failure-analysis-cron-schedule:
+      description: |
+        Cron schedule for the periodic failure analysis sweep.
+        Empty = disabled (analysis is triggered inline instead).
+      type: string
+      default: ""
+    # --- LLM ---
+    max-failures-per-analysis-run:
+      description: Maximum LLM calls per analysis run
+      type: int
+      default: 20
+    llm-model:
+      description: OpenRouter model slug for LLM-assisted analysis
+      type: string
+      default: "openai/gpt-4o-mini"
+
+requires:
+  temporal-host-info:
+    interface: temporal-host-info
+    limit: 1
+    optional: false

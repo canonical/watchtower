@@ -1,0 +1,21 @@
+name: watchtower
+base: bare
+build-base: ubuntu@24.04
+version: '0.2'
+summary: Ubuntu image build pipeline monitor
+description: |
+  Watchtower monitors Ubuntu image build pipelines via proactive
+  Temporal cron workflows and a reactive Mattermost bot.
+platforms:
+  amd64:
+  arm64:
+
+extensions:
+  - go-framework
+
+parts:
+  go-framework/install-app:
+    # The main package lives in cmd/bot, so the compiled binary is
+    # named "bot". Map it to the name the extension expects.
+    organize:
+      bin/bot: usr/local/bin/watchtower

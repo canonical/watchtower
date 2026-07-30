@@ -1,6 +1,15 @@
-.PHONY: build clean test lint check run-bot up down restart-bot reset clean-state
+.PHONY: build clean test lint check run-bot up down restart-bot reset clean-state \
+        rock charm-pack charm-push charm-refresh juju-status juju-logs
 
 BOT = bin/bot
+
+# OCI image tag pushed to the MicroK8s local registry
+ROCK_VERSION ?= 0.2
+ROCK_IMAGE   ?= localhost:32000/watchtower:$(ROCK_VERSION)
+ROCK_FILE    ?= watchtower_$(ROCK_VERSION)_amd64.rock
+
+# Charm file produced by charmcraft pack
+CHARM_FILE ?= $(CURDIR)/charm/watchtower_amd64.charm
 
 ## ── Local build ────────────────────────────────────────────────────────────
 
@@ -53,3 +62,46 @@ restart-bot:
 reset:
 	docker compose down -v
 	docker compose up --build -d
+
+## ── Charm packaging (Juju / K8s deploy) ────────────────────────────────────
+##
+## Prerequisites (one-time):
+##   sudo snap install rockcraft --channel latest/edge --classic
+##   sudo snap install charmcraft --channel latest/edge --classic
+##
+## Typical inner loop after a code change:
+##   make rock          # rebuild OCI image and push to MicroK8s registry
+##   make charm-pack    # rebuild charm
+##   make charm-refresh # push new image + refresh running charm
+
+## Build OCI rock and push it to the MicroK8s local registry.
+rock:
+	ROCKCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=true rockcraft pack
+	rockcraft.skopeo copy \
+		--insecure-policy \
+		--dest-tls-verify=false \
+		oci-archive:$(ROCK_FILE) \
+		docker://$(ROCK_IMAGE)
+
+## Pack the charm (clean first to avoid stale build cache).
+charm-pack:
+	cd charm && CHARMCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=true charmcraft clean
+	cd charm && CHARMCRAFT_ENABLE_EXPERIMENTAL_EXTENSIONS=true charmcraft pack
+
+## Push a new image and refresh the running watchtower charm in Juju.
+## Resolves any hook error before and after the refresh.
+charm-refresh: rock charm-pack
+	juju resolve watchtower/0 2>/dev/null || true
+	juju refresh watchtower \
+		--path=$(CHARM_FILE) \
+		--resource app-image=$(ROCK_IMAGE)
+	sleep 5
+	juju resolve watchtower/0 2>/dev/null || true
+
+## ── Juju observability helpers ──────────────────────────────────────────────
+
+juju-status:
+	juju status --relations
+
+juju-logs:
+	juju debug-log --tail

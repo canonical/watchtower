@@ -3,3 +3,7 @@ bot
 .env
 state/snapshot.json
 state/snapshot.json.tmp
+
+# Rockcraft / Charmcraft build artefacts
+*.rock
+charm/*.charm

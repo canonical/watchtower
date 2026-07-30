@@ -53,19 +53,24 @@ Note: the REPL runs inside the bot container. Attach with:
 For interactive development prefer Option B.
 
 ## Makefile targets
-| Target              | What it does                                                       |
-|---------------------|--------------------------------------------------------------------|
-| `make build`        | Compile bot binary into `bin/`                                     |
-| `make clean`        | Remove `bin/`                                                      |
-| `make test`         | `go test -race -count=1 ./...`                                     |
-| `make lint`         | `golangci-lint run ./...`                                          |
-| `make check`        | lint + test (pre-commit gate)                                      |
-| `make run-bot`      | `go run ./cmd/bot/` (Option B)                                     |
-| `make clean-state`  | Delete `state/snapshot.json` (force fresh fetch on next start)     |
-| `make up`           | `docker compose up --build -d` (Option A)                          |
-| `make down`         | `docker compose down` (keeps volumes)                              |
-| `make restart-bot`  | Rebuild + restart only the bot container (Temporal keeps running)  |
-| `make reset`        | `down -v` + `up` — full wipe of all volumes and fresh start        |
+| Target               | What it does                                                       |
+|----------------------|--------------------------------------------------------------------|
+| `make build`         | Compile bot binary into `bin/`                                     |
+| `make clean`         | Remove `bin/`                                                      |
+| `make test`          | `go test -race -count=1 ./...`                                     |
+| `make lint`          | `golangci-lint run ./...`                                          |
+| `make check`         | lint + test (pre-commit gate)                                      |
+| `make run-bot`       | `go run ./cmd/bot/` (Option B)                                     |
+| `make clean-state`   | Delete `state/snapshot.json` (force fresh fetch on next start)     |
+| `make up`            | `docker compose up --build -d` (Option A)                          |
+| `make down`          | `docker compose down` (keeps volumes)                              |
+| `make restart-bot`   | Rebuild + restart only the bot container (Temporal keeps running)  |
+| `make reset`         | `down -v` + `up` — full wipe of all volumes and fresh start        |
+| `make rock`          | Build OCI rock and push to MicroK8s registry (`localhost:32000`)   |
+| `make charm-pack`    | Clean + pack the charm with charmcraft                             |
+| `make charm-refresh` | `rock` + `charm-pack` + `juju refresh watchtower`                  |
+| `make juju-status`   | `juju status --relations`                                          |
+| `make juju-logs`     | `juju debug-log --tail`                                            |
 
 ## Test strategy
 Test these:   domain/artefact.go (pure helpers), state/snapshot.go (diff logic),
