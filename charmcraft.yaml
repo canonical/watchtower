@@ -13,11 +13,11 @@ description: |
 
 links:
   source:
-    - https://github.com/mclemenceau/watchtower
+    - https://github.com/canonical/watchtower
   website:
-    - https://github.com/mclemenceau/watchtower
+    - https://github.com/canonical/watchtower
   issues:
-    - https://github.com/mclemenceau/watchtower/issues
+    - https://github.com/canonical/watchtower/issues
 
 base: ubuntu@24.04
 
