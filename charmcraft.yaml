@@ -1,5 +1,7 @@
-# This file configures Charmcraft.
-# See https://juju.is/docs/sdk/charmcraft-config for guidance.
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+#
+# Run from the repo root: charmcraft pack
 
 name: watchtower-k8s
 type: charm
@@ -9,14 +11,62 @@ description: |
   Watchtower monitors Ubuntu image build pipelines via proactive
   Temporal cron workflows and a reactive Mattermost bot.
 
+links:
+  source:
+    - https://github.com/mclemenceau/watchtower
+  issues:
+    - https://github.com/mclemenceau/watchtower/issues
+
 base: ubuntu@24.04
 
 platforms:
   amd64:
   arm64:
 
-extensions:
-  - go-framework
+assumes:
+  - k8s-api
+  - juju >= 3.3
+
+# The Python charm code lives under charm/; the Go application is built
+# separately via rockcraft.yaml at the repo root.
+parts:
+  charm:
+    plugin: charm
+    source: charm/
+
+  files:
+    plugin: dump
+    source: .
+    stage:
+      - LICENSE
+
+containers:
+  app:
+    resource: app-image
+
+resources:
+  app-image:
+    type: oci-image
+    description: Watchtower OCI image.
+
+peers:
+  secret-storage:
+    interface: secret-storage
+
+requires:
+  temporal-host-info:
+    interface: temporal-host-info
+    limit: 1
+    optional: false
+  logging:
+    interface: loki_push_api
+  ingress:
+    interface: ingress
+    limit: 1
+
+charm-libs:
+  - lib: temporal_k8s.temporal_host_info
+    version: "0"
 
 config:
   options:
@@ -101,9 +151,3 @@ config:
         then set:    juju config watchtower-k8s \
                        openrouter-api-key-secret-id=<secret-id>
       type: secret
-
-requires:
-  temporal-host-info:
-    interface: temporal-host-info
-    limit: 1
-    optional: false

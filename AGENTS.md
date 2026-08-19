@@ -67,8 +67,8 @@ For interactive development prefer Option B.
 | `make restart-bot`   | Rebuild + restart only the bot container (Temporal keeps running)  |
 | `make reset`         | `down -v` + `up` — full wipe of all volumes and fresh start        |
 | `make rock`          | Build OCI rock and push to MicroK8s registry (`localhost:32000`)   |
-| `make charm-pack`    | Clean + pack the charm with charmcraft                             |
-| `make charm-refresh` | `rock` + `charm-pack` + `juju refresh watchtower-k8s`                |
+| `make charm-pack`    | Clean + pack the charm (`charmcraft pack` from repo root)          |
+| `make charm-refresh` | `rock` + `charm-pack` + `juju refresh watchtower-k8s`              |
 | `make juju-status`   | `juju status --relations`                                          |
 | `make juju-logs`     | `juju debug-log --tail`                                            |
 
