@@ -5,170 +5,228 @@
 """Watchtower charm entrypoint."""
 
 import logging
-import typing
 
 import ops
-import paas_charm.go
-from paas_charm.app import App
+from ops.pebble import APIError, ConnectionError, ProtocolError
 
 from charms.temporal_k8s.v0.temporal_host_info import (
-    TemporalHostInfoRequirer,
     TemporalHostInfoChangedEvent,
+    TemporalHostInfoRequirer,
 )
 
 logger = logging.getLogger(__name__)
 
+# Container name must match charmcraft.yaml containers key.
+CONTAINER = "app"
+# The Go binary is the pebble service entrypoint.
+SERVICE = "watchtower"
+BINARY = "/usr/local/bin/watchtower"
+
 # Mapping from charmcraft.yaml config option name (type: secret) to the
-# env var name the Go app reads.  Each config option holds a Juju secret
-# URI; the charm retrieves the secret by that URI and injects its "value"
-# field as the corresponding env var.
+# env var name the Go app reads.
 _SECRET_CONFIG_OPTIONS: dict[str, str] = {
     "mattermost-bot-token-secret-id": "MATTERMOST_BOT_TOKEN",
     "openrouter-api-key-secret-id": "OPENROUTER_API_KEY",
 }
 
-
-class _UnprefixedApp(App):
-    """App subclass that strips the APP_ prefix from user config env vars.
-
-    The watchtower binary reads env vars by their original names
-    (e.g. TEMPORAL_HOST, not APP_TEMPORAL_HOST), so we set both
-    configuration_prefix and framework_config_prefix to "".
-
-    Extra env vars (TEMPORAL_HOST, secrets) are injected via the
-    extra_env constructor argument and merged into gen_environment().
-    """
-
-    def __init__(
-        self,
-        *,
-        extra_env: dict[str, str] | None = None,
-        **kwargs: typing.Any,
-    ) -> None:
-        kwargs.setdefault("configuration_prefix", "")
-        kwargs.setdefault("framework_config_prefix", "")
-        super().__init__(**kwargs)
-        self._extra_env: dict[str, str] = extra_env or {}
-
-    def gen_environment(self) -> dict[str, str]:
-        """Generate environment, merging base env with extra vars.
-
-        Returns:
-            Combined environment dictionary.
-        """
-        env = super().gen_environment()
-        env.update(self._extra_env)
-        return env
+# Config options that map directly to env vars (name -> env var).
+# Charm config uses kebab-case; the Go app reads the env var.
+_CONFIG_ENV_VARS: dict[str, str] = {
+    "mattermost-server-url": "MATTERMOST_SERVER_URL",
+    "mattermost-bot-user-id": "MATTERMOST_BOT_USER_ID",
+    "watchtower-keyword": "WATCHTOWER_KEYWORD",
+    "mattermost-broadcast-channel-ids": "MATTERMOST_BROADCAST_CHANNEL_IDS",
+    "mattermost-reconnect-delay": "MATTERMOST_RECONNECT_DELAY",
+    "test-observer-url": "TEST_OBSERVER_URL",
+    "watchtower-releases-scope": "WATCHTOWER_RELEASES_SCOPE",
+    "summary-for-products": "SUMMARY_FOR_PRODUCTS",
+    "refresh-cron-schedule": "REFRESH_CRON_SCHEDULE",
+    "summary-cron-schedule": "SUMMARY_CRON_SCHEDULE",
+    "failure-analysis-cron-schedule": "FAILURE_ANALYSIS_CRON_SCHEDULE",
+    "max-failures-per-analysis-run": "MAX_FAILURES_PER_ANALYSIS_RUN",
+    "llm-model": "LLM_MODEL",
+}
 
 
-class WatchtowerCharm(paas_charm.go.Charm):
-    """Watchtower charm - Go service with Temporal relation and Juju secrets."""
+class WatchtowerCharm(ops.CharmBase):
+    """Watchtower charm - runs the Go bot as a pebble service."""
 
-    def __init__(self, *args: typing.Any) -> None:
-        """Initialize the charm.
+    def __init__(self, framework: ops.Framework) -> None:
+        """Initialise the charm."""
+        super().__init__(framework)
 
-        Args:
-            args: passthrough to CharmBase.
-        """
-        super().__init__(*args)
+        self._container = self.unit.get_container(CONTAINER)
 
-        # Wire up the temporal-host-info relation library.
+        # Temporal host-info relation.
         self._temporal = TemporalHostInfoRequirer(self)
-        self.framework.observe(
+        framework.observe(
             self._temporal.on.temporal_host_info_changed,
-            self._on_temporal_host_info_changed,
+            self._on_temporal_changed,
         )
-        self.framework.observe(
+        framework.observe(
             self._temporal.on.temporal_host_info_unavailable,
-            self._on_temporal_host_info_unavailable,
+            self._on_temporal_unavailable,
         )
 
+        # Standard charm events.
+        framework.observe(self.on[CONTAINER].pebble_ready, self._on_pebble_ready)
+        framework.observe(self.on.config_changed, self._on_config_changed)
+        framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
+        framework.observe(self.on.secret_changed, self._on_secret_changed)
+
     # ------------------------------------------------------------------
-    # Temporal relation handlers
+    # Event handlers
     # ------------------------------------------------------------------
 
-    def _on_temporal_host_info_changed(
+    def _on_pebble_ready(self, _: ops.EventBase) -> None:
+        """Start the service once pebble is ready."""
+        self._replan()
+
+    def _on_config_changed(self, _: ops.EventBase) -> None:
+        """Replan on every config change."""
+        self._replan()
+
+    def _on_upgrade_charm(self, _: ops.EventBase) -> None:
+        """Replan on charm upgrade, cleaning up any stale services."""
+        if self._container.can_connect():
+            self._remove_stale_services()
+        self._replan()
+
+    def _on_secret_changed(self, _: ops.EventBase) -> None:
+        """Replan when a Juju secret value is rotated."""
+        self._replan()
+
+    def _on_temporal_changed(
         self, event: TemporalHostInfoChangedEvent
     ) -> None:
-        """Handle Temporal host-info relation data becoming available.
-
-        Args:
-            event: the TemporalHostInfoChangedEvent carrying host/port.
-        """
+        """Handle Temporal relation data becoming available."""
         logger.info(
             "temporal relation updated: %s:%s", event.host, event.port
         )
-        self.restart()
+        self._replan()
 
-    def _on_temporal_host_info_unavailable(self, _: ops.EventBase) -> None:
-        """Handle Temporal host-info relation being broken."""
+    def _on_temporal_unavailable(self, _: ops.EventBase) -> None:
+        """Handle Temporal relation being broken or unavailable."""
         logger.warning("temporal relation lost")
-        self.update_app_and_unit_status(
-            ops.BlockedStatus("Waiting for temporal relation")
+        self._stop_service()
+        self.unit.status = ops.BlockedStatus(
+            "Waiting for temporal-host-info relation"
         )
 
     # ------------------------------------------------------------------
-    # Override: readiness gate
+    # Core logic
     # ------------------------------------------------------------------
 
-    def is_ready(self) -> bool:
-        """Block the workload until the temporal relation is present.
+    def _replan(self) -> None:
+        """Push pebble layer and reconcile service state."""
+        if not self._container.can_connect():
+            self.unit.status = ops.WaitingStatus("Waiting for pebble")
+            return
 
-        Returns:
-            True only when the base class is ready AND temporal is connected.
-        """
-        if not super().is_ready():
-            return False
-        if self._temporal.host is None or self._temporal.port is None:
-            self._create_app().stop_all_services()
-            self.update_app_and_unit_status(
-                ops.BlockedStatus("Waiting for temporal relation")
-            )
-            return False
-        return True
-
-    # ------------------------------------------------------------------
-    # Override: environment generation
-    # ------------------------------------------------------------------
-
-    def _create_app(self) -> App:
-        """Build an App instance with no env-var prefix and secrets injected.
-
-        Returns:
-            A configured _UnprefixedApp instance.
-        """
-        charm_state = self._create_charm_state()
-        return _UnprefixedApp(
-            container=self._container,
-            charm_state=charm_state,
-            workload_config=self._workload_config,
-            database_migration=self._database_migration,
-            extra_env={**self._temporal_env(), **self._secrets_env()},
-        )
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _temporal_env(self) -> dict[str, str]:
-        """Return TEMPORAL_HOST env var if the relation is present.
-
-        Returns:
-            Dict with TEMPORAL_HOST set, or empty dict if not yet known.
-        """
         host = self._temporal.host
         port = self._temporal.port
-        if host and port:
-            return {"TEMPORAL_HOST": f"{host}:{port}"}
-        return {}
+        if not host or not port:
+            self._stop_service()
+            self.unit.status = ops.BlockedStatus(
+                "Waiting for temporal-host-info relation"
+            )
+            return
+
+        env = self._build_env(host, port)
+        layer = ops.pebble.Layer({
+            "services": {
+                SERVICE: {
+                    "override": "replace",
+                    "summary": "watchtower bot",
+                    "command": BINARY,
+                    "startup": "enabled",
+                    "environment": env,
+                }
+            },
+            "checks": {
+                "ready": {
+                    "override": "replace",
+                    "period": "30s",
+                    "http": {"url": "http://localhost:8080/healthz"},
+                }
+            },
+        })
+
+        try:
+            self._container.add_layer(SERVICE, layer, combine=True)
+            self._container.replan()
+        except ops.pebble.ChangeError as exc:
+            # The service may exit immediately (e.g. Temporal not yet
+            # reachable on first start). Log it but do not fail the hook;
+            # the service will be restarted by pebble's back-off policy.
+            logger.warning("service start issue (will retry): %s", exc)
+        except (ConnectionError, ProtocolError, APIError) as exc:
+            logger.error("pebble error during replan: %s", exc)
+            self.unit.status = ops.BlockedStatus(
+                "Pebble error - check juju debug-log"
+            )
+            return
+
+        self.unit.status = ops.ActiveStatus()
+
+    def _remove_stale_services(self) -> None:
+        """Stop services left by a previous charm version.
+
+        The previous go-framework-based charm named its pebble service 'go'.
+        After the upgrade we own a service called 'watchtower'. Stopping any
+        unknown running service prevents pebble replan from managing stale ones.
+        """
+        try:
+            services = self._container.get_services()
+        except (ConnectionError, ProtocolError, APIError) as exc:
+            logger.warning("could not list services for cleanup: %s", exc)
+            return
+        for name, svc in services.items():
+            if name != SERVICE and svc.is_running():
+                logger.info("stopping stale service %r from previous charm", name)
+                try:
+                    self._container.stop(name)
+                except (ConnectionError, ProtocolError, APIError) as exc:
+                    logger.warning("could not stop stale service %r: %s", name, exc)
+
+    def _stop_service(self) -> None:
+        """Stop the workload service if pebble is reachable."""
+        if not self._container.can_connect():
+            return
+        try:
+            svc = self._container.get_services(SERVICE).get(SERVICE)
+            if svc and svc.is_running():
+                self._container.stop(SERVICE)
+        except (ConnectionError, ProtocolError, APIError) as exc:
+            logger.warning("could not stop service: %s", exc)
+
+    def _build_env(self, temporal_host: str, temporal_port: int) -> dict[str, str]:
+        """Build the full environment dictionary for the Go binary.
+
+        Args:
+            temporal_host: Temporal server hostname from the relation.
+            temporal_port: Temporal server port from the relation.
+
+        Returns:
+            Dict of env var name to value.
+        """
+        env: dict[str, str] = {
+            "TEMPORAL_HOST": f"{temporal_host}:{temporal_port}",
+        }
+
+        # Plain string/int config options.
+        for config_key, env_var in _CONFIG_ENV_VARS.items():
+            val = self.config.get(config_key)
+            if val is not None and val != "":
+                env[env_var] = str(val)
+
+        # Secret config options.
+        env.update(self._secrets_env())
+
+        return env
 
     def _secrets_env(self) -> dict[str, str]:
-        """Read Juju secrets via config-option IDs and return env var values.
-
-        Each secret config option holds a Juju secret URI.  The charm
-        fetches the secret by that URI and maps its "value" field to the
-        corresponding env var.  Missing or unset options are silently
-        skipped.
+        """Read Juju secrets from secret-type config options.
 
         Returns:
             Dict of env var name -> secret value for each configured secret.
@@ -195,9 +253,6 @@ class WatchtowerCharm(paas_charm.go.Charm):
         """
         secret_id = self.config.get(config_key)
         if not secret_id:
-            logger.debug(
-                "config option %r is unset, skipping secret", config_key
-            )
             return None
         try:
             secret = self.model.get_secret(id=secret_id)
@@ -211,5 +266,5 @@ class WatchtowerCharm(paas_charm.go.Charm):
             return None
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: nocover
     ops.main(WatchtowerCharm)
