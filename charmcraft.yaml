@@ -14,6 +14,8 @@ description: |
 links:
   source:
     - https://github.com/mclemenceau/watchtower
+  website:
+    - https://github.com/mclemenceau/watchtower
   issues:
     - https://github.com/mclemenceau/watchtower/issues
 
@@ -33,6 +35,11 @@ parts:
   charm:
     plugin: charm
     source: charm/
+    build-packages:
+      - git
+    override-build: |
+      craftctl default
+      git describe --always > $CRAFT_PART_INSTALL/version
 
   files:
     plugin: dump

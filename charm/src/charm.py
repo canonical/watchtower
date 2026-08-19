@@ -7,12 +7,11 @@
 import logging
 
 import ops
-from ops.pebble import APIError, ConnectionError, ProtocolError
-
 from charms.temporal_k8s.v0.temporal_host_info import (
     TemporalHostInfoChangedEvent,
     TemporalHostInfoRequirer,
 )
+from ops.pebble import APIError, ConnectionError, ProtocolError
 
 logger = logging.getLogger(__name__)
 
@@ -96,22 +95,16 @@ class WatchtowerCharm(ops.CharmBase):
         """Replan when a Juju secret value is rotated."""
         self._replan()
 
-    def _on_temporal_changed(
-        self, event: TemporalHostInfoChangedEvent
-    ) -> None:
+    def _on_temporal_changed(self, event: TemporalHostInfoChangedEvent) -> None:
         """Handle Temporal relation data becoming available."""
-        logger.info(
-            "temporal relation updated: %s:%s", event.host, event.port
-        )
+        logger.info("temporal relation updated: %s:%s", event.host, event.port)
         self._replan()
 
     def _on_temporal_unavailable(self, _: ops.EventBase) -> None:
         """Handle Temporal relation being broken or unavailable."""
         logger.warning("temporal relation lost")
         self._stop_service()
-        self.unit.status = ops.BlockedStatus(
-            "Waiting for temporal-host-info relation"
-        )
+        self.unit.status = ops.BlockedStatus("Waiting for temporal-host-info relation")
 
     # ------------------------------------------------------------------
     # Core logic
@@ -127,30 +120,30 @@ class WatchtowerCharm(ops.CharmBase):
         port = self._temporal.port
         if not host or not port:
             self._stop_service()
-            self.unit.status = ops.BlockedStatus(
-                "Waiting for temporal-host-info relation"
-            )
+            self.unit.status = ops.BlockedStatus("Waiting for temporal-host-info relation")
             return
 
         env = self._build_env(host, port)
-        layer = ops.pebble.Layer({
-            "services": {
-                SERVICE: {
-                    "override": "replace",
-                    "summary": "watchtower bot",
-                    "command": BINARY,
-                    "startup": "enabled",
-                    "environment": env,
-                }
-            },
-            "checks": {
-                "ready": {
-                    "override": "replace",
-                    "period": "30s",
-                    "http": {"url": "http://localhost:8080/healthz"},
-                }
-            },
-        })
+        layer = ops.pebble.Layer(
+            {
+                "services": {
+                    SERVICE: {
+                        "override": "replace",
+                        "summary": "watchtower bot",
+                        "command": BINARY,
+                        "startup": "enabled",
+                        "environment": env,
+                    }
+                },
+                "checks": {
+                    "ready": {
+                        "override": "replace",
+                        "period": "30s",
+                        "http": {"url": "http://localhost:8080/healthz"},
+                    }
+                },
+            }
+        )
 
         try:
             self._container.add_layer(SERVICE, layer, combine=True)
@@ -162,9 +155,7 @@ class WatchtowerCharm(ops.CharmBase):
             logger.warning("service start issue (will retry): %s", exc)
         except (ConnectionError, ProtocolError, APIError) as exc:
             logger.error("pebble error during replan: %s", exc)
-            self.unit.status = ops.BlockedStatus(
-                "Pebble error - check juju debug-log"
-            )
+            self.unit.status = ops.BlockedStatus("Pebble error - check juju debug-log")
             return
 
         self.unit.status = ops.ActiveStatus()
@@ -238,9 +229,7 @@ class WatchtowerCharm(ops.CharmBase):
                 result[env_var] = value
         return result
 
-    def _get_secret_value_from_config(
-        self, config_key: str
-    ) -> str | None:
+    def _get_secret_value_from_config(self, config_key: str) -> str | None:
         """Retrieve the 'value' field of a Juju secret via a config option.
 
         Args:

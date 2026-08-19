@@ -1,5 +1,6 @@
 .PHONY: build clean test lint check run-bot up down restart-bot reset clean-state \
-        rock charm-pack charm-push charm-refresh juju-status juju-logs
+        rock charm-pack charm-push charm-refresh juju-status juju-logs \
+        lint-charm test-charm check-charm
 
 BOT = bin/bot
 
@@ -30,6 +31,32 @@ lint:
 	golangci-lint run ./...
 
 check: lint test
+
+## ── Charm quality gates ─────────────────────────────────────────────────────
+
+## Lint the Python charm code.
+lint-charm:
+	cd charm && uv run --all-extras \
+		ruff check src tests
+	cd charm && uv run --all-extras \
+		ruff format --check --diff src tests
+
+## Run charm unit tests with coverage.
+test-charm:
+	cd charm && PYTHONPATH=lib:src \
+	uv run --all-extras \
+		coverage run \
+		--source=src \
+		-m pytest \
+		--ignore=tests/integration \
+		--tb native \
+		-v \
+		-s \
+		tests
+	cd charm && uv run --all-extras coverage report
+
+## Lint + test the charm (pre-commit gate for charm changes).
+check-charm: lint-charm test-charm
 
 ## ── Local dev (Option B — 2 terminals, recommended for active development) ──
 ##
