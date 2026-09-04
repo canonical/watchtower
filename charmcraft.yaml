@@ -39,7 +39,7 @@ parts:
       - git
     override-build: |
       craftctl default
-      git describe --always > $CRAFT_PART_INSTALL/version
+      git -C $CRAFT_PROJECT_DIR describe --always > $CRAFT_PART_INSTALL/version
 
   files:
     plugin: dump
