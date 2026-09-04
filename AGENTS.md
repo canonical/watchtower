@@ -53,19 +53,27 @@ Note: the REPL runs inside the bot container. Attach with:
 For interactive development prefer Option B.
 
 ## Makefile targets
-| Target              | What it does                                                       |
-|---------------------|--------------------------------------------------------------------|
-| `make build`        | Compile bot binary into `bin/`                                     |
-| `make clean`        | Remove `bin/`                                                      |
-| `make test`         | `go test -race -count=1 ./...`                                     |
-| `make lint`         | `golangci-lint run ./...`                                          |
-| `make check`        | lint + test (pre-commit gate)                                      |
-| `make run-bot`      | `go run ./cmd/bot/` (Option B)                                     |
-| `make clean-state`  | Delete `state/snapshot.json` (force fresh fetch on next start)     |
-| `make up`           | `docker compose up --build -d` (Option A)                          |
-| `make down`         | `docker compose down` (keeps volumes)                              |
-| `make restart-bot`  | Rebuild + restart only the bot container (Temporal keeps running)  |
-| `make reset`        | `down -v` + `up` — full wipe of all volumes and fresh start        |
+| Target               | What it does                                                       |
+|----------------------|--------------------------------------------------------------------|
+| `make build`         | Compile bot binary into `bin/`                                     |
+| `make clean`         | Remove `bin/`                                                      |
+| `make test`          | `go test -race -count=1 ./...`                                     |
+| `make lint`          | `golangci-lint run ./...`                                          |
+| `make check`         | lint + test (pre-commit gate)                                      |
+| `make lint-charm`    | ruff check + format check on charm/src and charm/tests             |
+| `make test-charm`    | pytest charm unit tests with coverage                              |
+| `make check-charm`   | lint-charm + test-charm (pre-commit gate for charm changes)        |
+| `make run-bot`       | `go run ./cmd/bot/` (Option B)                                     |
+| `make clean-state`   | Delete `state/snapshot.json` (force fresh fetch on next start)     |
+| `make up`            | `docker compose up --build -d` (Option A)                          |
+| `make down`          | `docker compose down` (keeps volumes)                              |
+| `make restart-bot`   | Rebuild + restart only the bot container (Temporal keeps running)  |
+| `make reset`         | `down -v` + `up` — full wipe of all volumes and fresh start        |
+| `make rock`          | Build OCI rock and push to MicroK8s registry (`localhost:32000`)   |
+| `make charm-pack`    | Clean + pack the charm (`charmcraft pack` from repo root)          |
+| `make charm-refresh` | `rock` + `charm-pack` + `juju refresh watchtower-k8s`              |
+| `make juju-status`   | `juju status --relations`                                          |
+| `make juju-logs`     | `juju debug-log --tail`                                            |
 
 ## Test strategy
 Test these:   domain/artefact.go (pure helpers), state/snapshot.go (diff logic),
@@ -83,12 +91,15 @@ When adding a new feature or making a significant design change, update both:
 ### Before every commit
 ALWAYS run the pre-commit gate and fix all failures before committing:
 ```
-make check   # runs lint then test
+make check        # Go: lint then test
+make check-charm  # Charm: ruff lint then pytest unit tests
 ```
 Or individually:
 ```
-make lint    # golangci-lint run ./...
-make test    # go test -race -count=1 ./...
+make lint         # golangci-lint run ./...
+make test         # go test -race -count=1 ./...
+make lint-charm   # ruff check + format check on charm/src and charm/tests
+make test-charm   # pytest charm unit tests with coverage
 ```
 Never commit code that fails either check. Install golangci-lint once:
 ```
@@ -96,11 +107,13 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 ```
 
 ### CI/CD (GitHub Actions)
-Two jobs run on every push and PR to `main` (`.github/workflows/ci.yml`):
+Four jobs run on every push and PR to `main` (`.github/workflows/ci.yml`):
 - **lint**: golangci-lint via `golangci/golangci-lint-action`
 - **test**: `go build ./...` then `go test -race -count=1 ./...`
+- **charm-lint**: `make lint-charm` (ruff check + format)
+- **charm-unit-test**: `make test-charm` (pytest with coverage)
 
-Both jobs must be green before a branch is merged. Do not merge PRs with failing CI.
+All jobs must be green before a branch is merged. Do not merge PRs with failing CI.
 
 ### Commit message conventions
 - Use the imperative mood, present tense: "add dispatch handler" not "added"

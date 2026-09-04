@@ -33,3 +33,23 @@ jobs:
         run: go build ./...
       - name: Test
         run: go test -race -count=1 ./...
+
+  charm-lint:
+    name: Charm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: sudo snap install --classic astral-uv
+      - name: Lint charm
+        run: make lint-charm
+
+  charm-unit-test:
+    name: Charm unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: sudo snap install --classic astral-uv
+      - name: Run charm unit tests
+        run: make test-charm

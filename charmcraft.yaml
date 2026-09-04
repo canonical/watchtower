@@ -1,0 +1,160 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+#
+# Run from the repo root: charmcraft pack
+
+name: watchtower-k8s
+type: charm
+title: Watchtower
+summary: Ubuntu image build pipeline monitor
+description: |
+  Watchtower monitors Ubuntu image build pipelines via proactive
+  Temporal cron workflows and a reactive Mattermost bot.
+
+links:
+  source:
+    - https://github.com/canonical/watchtower
+  website:
+    - https://github.com/canonical/watchtower
+  issues:
+    - https://github.com/canonical/watchtower/issues
+
+base: ubuntu@24.04
+
+platforms:
+  amd64:
+  arm64:
+
+assumes:
+  - k8s-api
+  - juju >= 3.3
+
+# The Python charm code lives under charm/; the Go application is built
+# separately via rockcraft.yaml at the repo root.
+parts:
+  charm:
+    plugin: charm
+    source: charm/
+    build-packages:
+      - git
+    override-build: |
+      craftctl default
+      git describe --always > $CRAFT_PART_INSTALL/version
+
+  files:
+    plugin: dump
+    source: .
+    stage:
+      - LICENSE
+
+containers:
+  app:
+    resource: app-image
+
+resources:
+  app-image:
+    type: oci-image
+    description: Watchtower OCI image.
+
+peers:
+  secret-storage:
+    interface: secret-storage
+
+requires:
+  temporal-host-info:
+    interface: temporal-host-info
+    limit: 1
+    optional: false
+  logging:
+    interface: loki_push_api
+  ingress:
+    interface: ingress
+    limit: 1
+
+charm-libs:
+  - lib: temporal_k8s.temporal_host_info
+    version: "0"
+
+config:
+  options:
+    # --- Mattermost ---
+    mattermost-server-url:
+      description: Base URL of the Mattermost server (e.g. http://mm.example.com:8065)
+      type: string
+      default: ""
+    mattermost-bot-user-id:
+      description: User ID of the Mattermost bot account
+      type: string
+      default: ""
+    mattermost-bot-token-secret-id:
+      description: |
+        Juju user secret ID holding the Mattermost bot token.
+        Create with: juju secret add mattermost-bot-token value=<token>
+        then grant:  juju grant-secret <secret-id> watchtower-k8s
+        then set:    juju config watchtower-k8s \
+                       mattermost-bot-token-secret-id=<secret-id>
+      type: secret
+    watchtower-keyword:
+      description: Trigger keyword for the bot (default @watchtower)
+      type: string
+      default: "@watchtower"
+    mattermost-broadcast-channel-ids:
+      description: |
+        Comma-separated Mattermost channel IDs for proactive summaries.
+        Empty = all joined channels.
+      type: string
+      default: ""
+    mattermost-reconnect-delay:
+      description: WebSocket reconnect delay (e.g. 5s, 1m)
+      type: string
+      default: "5s"
+    # --- Test Observer ---
+    test-observer-url:
+      description: Ubuntu Test Observer API base URL
+      type: string
+      default: "https://tests-api.ubuntu.com"
+    # --- Scope ---
+    watchtower-releases-scope:
+      description: |
+        Comma-separated ordered list of Ubuntu releases to scope all
+        operations. Empty = all releases.
+      type: string
+      default: ""
+    summary-for-products:
+      description: |
+        Comma-separated OS/product names for summary filtering.
+        Empty = all products.
+      type: string
+      default: ""
+    # --- Cron schedules ---
+    refresh-cron-schedule:
+      description: Cron schedule for dataset refresh (default every 30 min)
+      type: string
+      default: "*/30 * * * *"
+    summary-cron-schedule:
+      description: Cron schedule for proactive build summaries
+      type: string
+      default: "0 7,15,23 * * *"
+    failure-analysis-cron-schedule:
+      description: |
+        Cron schedule for the periodic failure analysis sweep.
+        Empty = disabled (analysis is triggered inline instead).
+      type: string
+      default: ""
+    # --- LLM ---
+    max-failures-per-analysis-run:
+      description: Maximum LLM calls per analysis run
+      type: int
+      default: 20
+    llm-model:
+      description: OpenRouter model slug for LLM-assisted analysis
+      type: string
+      default: "openai/gpt-4o-mini"
+    openrouter-api-key-secret-id:
+      description: |
+        Juju user secret ID holding the OpenRouter API key.
+        Create with: juju secret add openrouter-api-key value=<key>
+        then grant:  juju grant-secret <secret-id> watchtower-k8s
+        then set:    juju config watchtower-k8s \
+                       openrouter-api-key-secret-id=<secret-id>
+      type: secret

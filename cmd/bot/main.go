@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"unsafe"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
@@ -41,6 +45,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "config: %s\n", err.Error())
 		os.Exit(1)
 	}
+
+	// Start a minimal HTTP health server for K8s liveness/readiness probes
+	// and Pebble health checks (go-framework extension requirement).
+	go func() {
+		port := os.Getenv("APP_PORT")
+		if port == "" {
+			port = "8080"
+		}
+		mux := http.NewServeMux()
+		mux.HandleFunc("/healthz", func(
+			w http.ResponseWriter, _ *http.Request,
+		) {
+			w.WriteHeader(http.StatusOK)
+		})
+		if err := http.ListenAndServe(":"+port, mux); err != nil {
+			log.Printf("health server: %v", err)
+		}
+	}()
 
 	// Select notifier for proactive summaries (broadcast to all joined channels).
 	// Falls back to stdout when Mattermost credentials are absent.
@@ -175,14 +197,23 @@ func main() {
 		triggerAnalysis,
 	)
 
-	// Run the interactive REPL — blocks until stdin is closed or Ctrl-D.
-	mattermostadapter.RunREPL(
-		context.Background(), os.Stdin, notifier,
-		snap, failureState,
-		cfg.ReleasesScope, cfg.SummaryForProducts,
-		cfg.WatchtowerKeyword, resolver, logFetcher, llmClient, launchpadSrc,
-		triggerAnalysis,
-	)
+	// Run the interactive REPL when stdin is a terminal (local dev).
+	// In K8s stdin is not a tty, so we block on SIGTERM/SIGINT instead.
+	if isTerminal(os.Stdin) {
+		mattermostadapter.RunREPL(
+			context.Background(), os.Stdin, notifier,
+			snap, failureState,
+			cfg.ReleasesScope, cfg.SummaryForProducts,
+			cfg.WatchtowerKeyword, resolver, logFetcher, llmClient,
+			launchpadSrc, triggerAnalysis,
+		)
+	} else {
+		log.Print("stdin is not a terminal — running in headless mode, waiting for signal")
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+		<-quit
+		log.Print("signal received, shutting down")
+	}
 }
 
 func startDataRefreshWorkflow(c client.Client, cronSchedule string) {
@@ -291,4 +322,17 @@ func hasTestData(artefacts []domain.Artefact) bool {
 		}
 	}
 	return false
+}
+
+// isTerminal reports whether f is connected to an interactive terminal.
+// It uses the TIOCGWINSZ ioctl which is available on Linux and macOS.
+func isTerminal(f *os.File) bool {
+	var ws [4]uint16 // struct winsize
+	_, _, errno := syscall.Syscall(
+		syscall.SYS_IOCTL,
+		f.Fd(),
+		syscall.TIOCGWINSZ,
+		uintptr(unsafe.Pointer(&ws)),
+	)
+	return errno == 0
 }

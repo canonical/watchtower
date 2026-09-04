@@ -3,3 +3,21 @@ bot
 .env
 state/snapshot.json
 state/snapshot.json.tmp
+
+# Rockcraft / Charmcraft build artefacts
+*.rock
+*.charm
+.charm_build_dir/
+
+# Python / charm dev
+venv/
+.tox/
+.coverage
+__pycache__/
+*.py[cod]
+*.egg-info/
+.idea
+.vscode/
+
+# charmcraft fetch-lib deposits libs at the project root
+lib/
