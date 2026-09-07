@@ -201,8 +201,12 @@ class WatchtowerCharm(ops.CharmBase):
         Returns:
             Dict of env var name to value.
         """
+        # Use the stable K8s service DNS name rather than the pod IP
+        # provided by the relation. Pod IPs are ephemeral and change on
+        # every pod restart or VM reboot; the service DNS name is stable.
+        _ = temporal_host  # relation host retained for guard logic only
         env: dict[str, str] = {
-            "TEMPORAL_HOST": f"{temporal_host}:{temporal_port}",
+            "TEMPORAL_HOST": f"temporal-k8s:{temporal_port}",
         }
 
         # Plain string/int config options.
