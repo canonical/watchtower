@@ -268,17 +268,23 @@ class TestPebbleLayer:
         assert service.startup == "enabled"
 
     def test_layer_sets_temporal_host_env_var(self):
-        """The TEMPORAL_HOST env var should be built from relation data."""
+        """TEMPORAL_HOST uses the stable K8s service DNS name.
+
+        The ephemeral pod IP supplied by the relation is ignored; only the
+        port is taken from relation data.
+        """
         ctx = _ctx()
         container = _container()
-        relation = _temporal_relation(host="temporal.svc", port=7233)
+        # Simulate a different pod IP in the relation to confirm it is
+        # ignored in favour of the fixed service DNS name.
+        relation = _temporal_relation(host="10.1.99.1", port=7233)
         state = State(containers=[container], relations=[relation])
 
         result = ctx.run(ctx.on.pebble_ready(container=container), state)
 
         out_container = result.get_container(CONTAINER_NAME)
         env = out_container.layers["watchtower"].services["watchtower"].environment
-        assert env.get("TEMPORAL_HOST") == "temporal.svc:7233"
+        assert env.get("TEMPORAL_HOST") == "temporal-k8s:7233"
 
     def test_layer_propagates_config_env_vars(self):
         """Config options should be forwarded as env vars to the service."""
