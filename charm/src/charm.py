@@ -25,6 +25,7 @@ BINARY = "/usr/local/bin/watchtower"
 # env var name the Go app reads.
 _SECRET_CONFIG_OPTIONS: dict[str, str] = {
     "mattermost-bot-token-secret-id": "MATTERMOST_BOT_TOKEN",
+    "mattermost-poll-token-secret-id": "MATTERMOST_POLL_TOKEN",
     "openrouter-api-key-secret-id": "OPENROUTER_API_KEY",
 }
 
@@ -36,6 +37,8 @@ _CONFIG_ENV_VARS: dict[str, str] = {
     "watchtower-keyword": "WATCHTOWER_KEYWORD",
     "mattermost-broadcast-channel-ids": "MATTERMOST_BROADCAST_CHANNEL_IDS",
     "mattermost-reconnect-delay": "MATTERMOST_RECONNECT_DELAY",
+    "mattermost-channel-id": "MATTERMOST_CHANNEL_ID",
+    "mattermost-poll-interval": "MATTERMOST_POLL_INTERVAL",
     "test-observer-url": "TEST_OBSERVER_URL",
     "watchtower-releases-scope": "WATCHTOWER_RELEASES_SCOPE",
     "summary-for-products": "SUMMARY_FOR_PRODUCTS",

@@ -64,20 +64,35 @@ func main() {
 		}
 	}()
 
-	// Select notifier for proactive summaries (broadcast to all joined channels).
-	// Falls back to stdout when Mattermost credentials are absent.
+	// Select notifier for proactive summaries.
+	// Priority: bot credentials > polling channel > stdout.
 	var notifier ports.Notifier
-	if cfg.MattermostServerURL != "" && cfg.MattermostBotToken != "" && cfg.MattermostBotUserID != "" {
+	switch {
+	case cfg.MattermostServerURL != "" &&
+		cfg.MattermostBotToken != "" &&
+		cfg.MattermostBotUserID != "":
 		notifier = mattermostadapter.NewBroadcastNotifier(
 			cfg.MattermostServerURL,
 			cfg.MattermostBotToken,
 			cfg.MattermostBotUserID,
 			cfg.MattermostBroadcastChannels,
 		)
-		log.Printf("mattermost bot: broadcast notifier active (%s)", cfg.MattermostServerURL)
-	} else {
+		log.Printf("mattermost bot: broadcast notifier active (%s)",
+			cfg.MattermostServerURL)
+	case cfg.MattermostServerURL != "" &&
+		cfg.MattermostPollToken != "" &&
+		cfg.MattermostChannelID != "":
+		notifier = mattermostadapter.NewChannelNotifier(
+			cfg.MattermostServerURL,
+			cfg.MattermostPollToken,
+			cfg.MattermostChannelID,
+		)
+		log.Printf("mattermost poller: channel notifier active (%s, channel %s)",
+			cfg.MattermostServerURL, cfg.MattermostChannelID)
+	default:
 		notifier = &mattermostadapter.StdoutNotifier{}
-		log.Print("mattermost bot: stdout simulation (set MATTERMOST_SERVER_URL, MATTERMOST_BOT_TOKEN, MATTERMOST_BOT_USER_ID for real Mattermost)")
+		log.Print("mattermost: stdout simulation" +
+			" (set bot or poller credentials for real Mattermost)")
 	}
 
 	artefactSrc := testobserver.NewHTTPArtefactSource(cfg.TestObserverURL)
@@ -190,6 +205,30 @@ func main() {
 		cfg.ReleasesScope,
 		cfg.SummaryForProducts,
 		nil, // httpClient — bot.go uses its own default
+		resolver,
+		logFetcher,
+		llmClient,
+		launchpadSrc,
+		triggerAnalysis,
+	)
+
+	// Start the REST polling listener in the background.
+	// This is an alternative to the WebSocket bot that only requires a personal
+	// access token — no bot account needed.
+	go mattermostadapter.RunPoller(
+		botCtx,
+		mattermostadapter.PollerConfig{
+			ServerURL: cfg.MattermostServerURL,
+			Token:     cfg.MattermostPollToken,
+			ChannelID: cfg.MattermostChannelID,
+			Interval:  cfg.MattermostPollInterval,
+			Keyword:   cfg.WatchtowerKeyword,
+		},
+		snap,
+		failureState,
+		cfg.ReleasesScope,
+		cfg.SummaryForProducts,
+		nil, // httpClient — poller uses its own default
 		resolver,
 		logFetcher,
 		llmClient,

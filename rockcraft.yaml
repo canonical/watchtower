@@ -1,7 +1,7 @@
 name: watchtower
 base: bare
 build-base: ubuntu@24.04
-version: '0.4'
+version: '0.5'
 summary: Ubuntu image build pipeline monitor
 description: |
   Watchtower monitors Ubuntu image build pipelines via proactive
@@ -12,6 +12,14 @@ platforms:
 
 extensions:
   - go-framework
+
+# The go-framework extension bakes in a pebble service named "go".
+# The charm manages its own "watchtower" service, so disable the
+# extension's service at the rock level via the idiomatic services: key.
+services:
+  go:
+    override: merge
+    startup: disabled
 
 parts:
   go-framework/install-app:

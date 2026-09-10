@@ -82,6 +82,7 @@ config:
       description: Base URL of the Mattermost server (e.g. http://mm.example.com:8065)
       type: string
       default: ""
+    # Bot mode (requires a Mattermost bot account)
     mattermost-bot-user-id:
       description: User ID of the Mattermost bot account
       type: string
@@ -89,25 +90,47 @@ config:
     mattermost-bot-token-secret-id:
       description: |
         Juju user secret ID holding the Mattermost bot token.
-        Create with: juju secret add mattermost-bot-token value=<token>
+        Create with: juju add-secret mattermost-bot-token value=<token>
         then grant:  juju grant-secret <secret-id> watchtower-k8s
         then set:    juju config watchtower-k8s \
                        mattermost-bot-token-secret-id=<secret-id>
       type: secret
-    watchtower-keyword:
-      description: Trigger keyword for the bot (default @watchtower)
-      type: string
-      default: "@watchtower"
     mattermost-broadcast-channel-ids:
       description: |
-        Comma-separated Mattermost channel IDs for proactive summaries.
-        Empty = all joined channels.
+        Comma-separated Mattermost channel IDs for proactive summaries (bot
+        mode only). Empty = all joined channels.
       type: string
       default: ""
     mattermost-reconnect-delay:
-      description: WebSocket reconnect delay (e.g. 5s, 1m)
+      description: WebSocket reconnect delay for bot mode (e.g. 5s, 1m)
       type: string
       default: "5s"
+    # Polling mode (alternative to bot — only requires a personal access token)
+    mattermost-poll-token-secret-id:
+      description: |
+        Juju user secret ID holding a personal access token for polling mode.
+        No bot account required — any regular Mattermost user token works.
+        Create with: juju add-secret mattermost-poll-token value=<token>
+        then grant:  juju grant-secret <secret-id> watchtower-k8s
+        then set:    juju config watchtower-k8s \
+                       mattermost-poll-token-secret-id=<secret-id>
+      type: secret
+    mattermost-channel-id:
+      description: |
+        Single Mattermost channel ID to watch for keyword mentions and to
+        post proactive summaries to (polling mode).
+      type: string
+      default: ""
+    mattermost-poll-interval:
+      description: |
+        How often to poll the channel for new posts in polling mode
+        (Go duration string, e.g. 30s, 1m). Default: 30s.
+      type: string
+      default: "30s"
+    watchtower-keyword:
+      description: Trigger keyword for bot/poller (default @watchtower)
+      type: string
+      default: "@watchtower"
     # --- Test Observer ---
     test-observer-url:
       description: Ubuntu Test Observer API base URL
@@ -153,7 +176,7 @@ config:
     openrouter-api-key-secret-id:
       description: |
         Juju user secret ID holding the OpenRouter API key.
-        Create with: juju secret add openrouter-api-key value=<key>
+        Create with: juju add-secret openrouter-api-key value=<key>
         then grant:  juju grant-secret <secret-id> watchtower-k8s
         then set:    juju config watchtower-k8s \
                        openrouter-api-key-secret-id=<secret-id>

@@ -29,12 +29,12 @@ applications:
     trust: true
 
   watchtower-k8s:
-    charm: ./charm/watchtower-k8s_amd64.charm
+    charm: ./watchtower-k8s_amd64.charm
     scale: 1
     resources:
       # Points to the MicroK8s local registry; update when a real
       # registry is available (see Open decisions in CHARM_PLAN.md).
-      app-image: localhost:32000/watchtower:0.4
+      app-image: localhost:32000/watchtower:0.5
 
 relations:
   - [temporal-k8s:db, postgresql-k8s:database]
