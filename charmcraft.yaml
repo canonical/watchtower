@@ -90,7 +90,7 @@ config:
     mattermost-bot-token-secret-id:
       description: |
         Juju user secret ID holding the Mattermost bot token.
-        Create with: juju secret add mattermost-bot-token value=<token>
+        Create with: juju add-secret mattermost-bot-token value=<token>
         then grant:  juju grant-secret <secret-id> watchtower-k8s
         then set:    juju config watchtower-k8s \
                        mattermost-bot-token-secret-id=<secret-id>
@@ -110,7 +110,7 @@ config:
       description: |
         Juju user secret ID holding a personal access token for polling mode.
         No bot account required — any regular Mattermost user token works.
-        Create with: juju secret add mattermost-poll-token value=<token>
+        Create with: juju add-secret mattermost-poll-token value=<token>
         then grant:  juju grant-secret <secret-id> watchtower-k8s
         then set:    juju config watchtower-k8s \
                        mattermost-poll-token-secret-id=<secret-id>
@@ -176,7 +176,7 @@ config:
     openrouter-api-key-secret-id:
       description: |
         Juju user secret ID holding the OpenRouter API key.
-        Create with: juju secret add openrouter-api-key value=<key>
+        Create with: juju add-secret openrouter-api-key value=<key>
         then grant:  juju grant-secret <secret-id> watchtower-k8s
         then set:    juju config watchtower-k8s \
                        openrouter-api-key-secret-id=<secret-id>
