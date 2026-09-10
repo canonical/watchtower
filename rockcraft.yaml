@@ -1,7 +1,7 @@
 name: watchtower
 base: bare
 build-base: ubuntu@24.04
-version: '0.4'
+version: '0.5'
 summary: Ubuntu image build pipeline monitor
 description: |
   Watchtower monitors Ubuntu image build pipelines via proactive
@@ -19,3 +19,20 @@ parts:
     # named "bot". Map it to the name the extension expects.
     organize:
       bin/bot: usr/local/bin/watchtower
+
+  disable-go-service:
+    # The go-framework extension bakes in a pebble service named "go"
+    # that runs without env vars. The charm manages its own "watchtower"
+    # service, so disable the stale one at the rock level.
+    plugin: dump
+    source: .
+    override-build: |
+      mkdir -p "${CRAFT_PART_INSTALL}/var/lib/pebble/default/layers"
+      cat > "${CRAFT_PART_INSTALL}/var/lib/pebble/default/layers/002-disable-go.yaml" <<'EOF'
+      services:
+        go:
+          override: merge
+          startup: disabled
+      EOF
+    stage:
+      - var/lib/pebble/default/layers/002-disable-go.yaml
