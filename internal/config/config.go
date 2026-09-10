@@ -25,6 +25,11 @@ type Config struct {
 	MattermostReconnectDelay    time.Duration // WebSocket reconnect delay (default 5s)
 	MattermostBroadcastChannels []string      // channel IDs to post proactive summaries to; empty = all joined channels
 
+	// Mattermost polling mode (alternative to bot; uses a personal access token)
+	MattermostPollToken    string        // personal access token for the polling user
+	MattermostChannelID    string        // single channel to watch and post to
+	MattermostPollInterval time.Duration // how often to poll for new posts (default 30s)
+
 	// LLM-assisted intent resolution (optional — feature is disabled when OpenRouterAPIKey is empty)
 	OpenRouterAPIKey string
 	LLMModel         string
@@ -47,6 +52,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	pollInterval, err := parseDurationEnv("MATTERMOST_POLL_INTERVAL", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
 	maxFailures, err := parseIntEnv("MAX_FAILURES_PER_ANALYSIS_RUN", 20)
 	if err != nil {
 		return nil, err
@@ -62,6 +71,9 @@ func Load() (*Config, error) {
 		WatchtowerKeyword:           envOrDefault("WATCHTOWER_KEYWORD", "@watchtower"),
 		MattermostReconnectDelay:    reconnectDelay,
 		MattermostBroadcastChannels: parseSummaryList(os.Getenv("MATTERMOST_BROADCAST_CHANNEL_IDS")),
+		MattermostPollToken:         os.Getenv("MATTERMOST_POLL_TOKEN"),
+		MattermostChannelID:         os.Getenv("MATTERMOST_CHANNEL_ID"),
+		MattermostPollInterval:      pollInterval,
 		OpenRouterAPIKey:            os.Getenv("OPENROUTER_API_KEY"),
 		LLMModel:                    envOrDefault("LLM_MODEL", "openai/gpt-4o-mini"),
 		RefreshCronSchedule:         envOrDefault("REFRESH_CRON_SCHEDULE", "*/30 * * * *"),
