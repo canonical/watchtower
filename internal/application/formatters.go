@@ -20,12 +20,14 @@ func FormatBuildsStatusSummary(artefacts []domain.Artefact) string {
 	}
 
 	type releaseStat struct {
-		total      int
-		built      int
-		inProgress int
-		failed     int
-		notStarted int
-		unknown    int
+		total        int
+		built        int
+		inProgress   int
+		failed       int
+		notStarted   int
+		approved     int
+		markedFailed int
+		unknown      int
 	}
 	stats := make(map[string]*releaseStat)
 	for _, art := range artefacts {
@@ -44,6 +46,10 @@ func FormatBuildsStatusSummary(artefacts []domain.Artefact) string {
 			s.failed++
 		case domain.BuildStatusNotStarted:
 			s.notStarted++
+		case domain.BuildStatusApproved:
+			s.approved++
+		case domain.BuildStatusMarkedFailed:
+			s.markedFailed++
 		default:
 			s.unknown++
 		}
@@ -57,19 +63,21 @@ func FormatBuildsStatusSummary(artefacts []domain.Artefact) string {
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "**Build Status** · %s\n\n", time.Now().UTC().Format("2006-01-02 15:04 UTC"))
-	sb.WriteString("| Release | ✅ Built | 🔄 In Progress | ❌ Failed | ⏳ Not Started | ❓ Unknown | Total | Progress |\n")
-	sb.WriteString("|---------|---------|--------------|---------|-------------|---------|-------|----------|\n")
+	sb.WriteString("| Release | ✅ Built | 🔄 In Progress | ❌ Failed | ⏳ Not Started | ✔️ Approved | 🚫 QA Failed | ❓ Unknown | Total | Progress |\n")
+	sb.WriteString("|---------|---------|--------------|---------|-------------|-----------|------------|---------|-------|----------|\n")
 	for _, r := range releases {
 		s := stats[r]
+		healthy := s.built + s.approved
 		pct := 0
 		if s.total > 0 {
-			pct = s.built * 100 / s.total
+			pct = healthy * 100 / s.total
 		}
 		green := pct / 10
 		red := 10 - green
 		bar := strings.Repeat("🟩", green) + strings.Repeat("🟥", red)
-		fmt.Fprintf(&sb, "| **%s** | %d | %d | %d | %d | %d | %d | %s |\n",
-			r, s.built, s.inProgress, s.failed, s.notStarted, s.unknown, s.total, bar)
+		fmt.Fprintf(&sb, "| **%s** | %d | %d | %d | %d | %d | %d | %d | %d | %s |\n",
+			r, s.built, s.inProgress, s.failed, s.notStarted,
+			s.approved, s.markedFailed, s.unknown, s.total, bar)
 	}
 	return sb.String()
 }
@@ -404,12 +412,15 @@ func FormatScheduledSummary(artefacts []domain.Artefact, releasesScope []string)
 
 		total := len(arts)
 		built := 0
+		approved := 0
 		var infraArts, productArts []domain.Artefact
 
 		for _, art := range arts {
 			switch effectiveBuildLog(art) {
 			case domain.BuildStatusBuilt:
 				built++
+			case domain.BuildStatusApproved:
+				approved++
 			case domain.BuildStatusFailed:
 				switch art.BuildFailureKind {
 				case domain.BuildFailureKindInfra:
@@ -420,13 +431,22 @@ func FormatScheduledSummary(artefacts []domain.Artefact, releasesScope []string)
 			}
 		}
 
-		weather := buildWeatherEmoji(built, total)
+		// For weather/percentage, approved artefacts count as healthy:
+		// on release day builds stop and APPROVED is the expected final state.
+		healthy := built + approved
+		weather := buildWeatherEmoji(healthy, total)
 		buildPct := 0
 		if total > 0 {
-			buildPct = built * 100 / total
+			buildPct = healthy * 100 / total
 		}
-		fmt.Fprintf(&sb, "#### %s %s  · %d%% (%d/%d)\n",
-			release, weather, buildPct, built, total)
+		// Show built+approved in the heading so the reader knows why it's sunny.
+		if approved > 0 && built == 0 {
+			fmt.Fprintf(&sb, "#### %s %s  · %d%% (%d/%d approved)\n",
+				release, weather, buildPct, approved, total)
+		} else {
+			fmt.Fprintf(&sb, "#### %s %s  · %d%% (%d/%d)\n",
+				release, weather, buildPct, built, total)
+		}
 
 		if len(infraArts) > 0 {
 			fmt.Fprintf(&sb, "  Infra (%d): %s\n", len(infraArts), formatFailureLine(infraArts))
@@ -694,15 +714,29 @@ func archFromName(name string) string {
 }
 
 // effectiveBuildLog returns the effective BuildStatusState for an artefact.
-// When a BuildLog state has been set (via EnrichBuildStatus), it is returned directly.
-// Otherwise the function falls back to version-date logic: today's version = BUILT,
-// any other date = NOT_STARTED (conservative fallback; no log data available).
+// When a BuildLog state has been set (via EnrichBuildStatus) to a value other
+// than NOT_STARTED, it is returned directly — NOT_STARTED is treated as
+// equivalent to "no log fetched" because a prior fetch cycle may have written
+// NOT_STARTED into the snapshot (e.g. yesterday's run when today's log was a
+// 404), and on release day the QA status is the authoritative signal.
+//
+// Fallback priority:
+//   - today's version                         → BUILT
+//   - APPROVED (Status)                       → BuildStatusApproved
+//   - MARKED_AS_FAILED (Status)               → BuildStatusMarkedFailed
+//   - anything else                           → NOT_STARTED
 func effectiveBuildLog(art domain.Artefact) domain.BuildStatusState {
-	if art.BuildLog != "" {
+	if art.BuildLog != "" && art.BuildLog != domain.BuildStatusNotStarted {
 		return art.BuildLog
 	}
 	if domain.IsBuiltToday(art.Version) {
 		return domain.BuildStatusBuilt
+	}
+	switch art.Status {
+	case "APPROVED":
+		return domain.BuildStatusApproved
+	case "MARKED_AS_FAILED":
+		return domain.BuildStatusMarkedFailed
 	}
 	return domain.BuildStatusNotStarted
 }
@@ -714,14 +748,26 @@ func effectiveBuildLog(art domain.Artefact) domain.BuildStatusState {
 //   - "❌ PRODUCT: livefs build failure requires analysis"
 //   - "❌ INFRA"   — kind known but no description set
 //   - "❌"         — failed but kind not yet classified
+//
+// For approved/QA-failed states the Test Observer status is surfaced:
+//   - "✔️ APPROVED"       — no build today; QA approved
+//   - "🚫 MARKED_AS_FAILED" — no build today; QA explicitly failed
 func artefactStatusCell(art domain.Artefact) string {
 	status := effectiveBuildLog(art)
 	icon := domain.BuildLogIcon(status)
-	if status == domain.BuildStatusFailed && art.BuildFailureKind != "" {
-		if art.BuildFailureDescription != "" {
-			return icon + " " + string(art.BuildFailureKind) + ": " + art.BuildFailureDescription
+	switch status {
+	case domain.BuildStatusFailed:
+		if art.BuildFailureKind != "" {
+			if art.BuildFailureDescription != "" {
+				return icon + " " + string(art.BuildFailureKind) +
+					": " + art.BuildFailureDescription
+			}
+			return icon + " " + string(art.BuildFailureKind)
 		}
-		return icon + " " + string(art.BuildFailureKind)
+	case domain.BuildStatusApproved:
+		return icon + " APPROVED"
+	case domain.BuildStatusMarkedFailed:
+		return icon + " MARKED_AS_FAILED"
 	}
 	return icon
 }
