@@ -1442,6 +1442,38 @@ func TestEffectiveBuildLog_ApprovedNoLog(t *testing.T) {
 	}
 }
 
+// TestEffectiveBuildLog_ApprovedWithStoredNotStarted verifies the real-world
+// scenario: a prior fetch cycle wrote BuildLog=NOT_STARTED into the snapshot,
+// and the artefact is APPROVED. The display must still show ✔️ APPROVED, not
+// ⏳, because NOT_STARTED is treated as equivalent to "no log" for this check.
+func TestEffectiveBuildLog_ApprovedWithStoredNotStarted(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:       1,
+			Name:     "noble-desktop-amd64.iso",
+			OS:       "ubuntu",
+			Release:  "noble",
+			Version:  yesterday,
+			Status:   "APPROVED",
+			BuildLog: domain.BuildStatusNotStarted, // stale value from prior fetch
+		},
+	}
+	out := FormatBuildsStatusRelease(
+		artefacts, "noble", "", domain.FailureStore{},
+	)
+	if !strings.Contains(out, "✔️") {
+		t.Errorf(
+			"expected ✔️ for APPROVED artefact with stale NOT_STARTED, got:\n%s",
+			out,
+		)
+	}
+	if strings.Contains(out, "⏳") {
+		t.Errorf(
+			"stale NOT_STARTED + APPROVED must not show ⏳, got:\n%s", out,
+		)
+	}
+}
+
 // TestEffectiveBuildLog_MarkedAsFailedNoLog verifies that when BuildLog is empty,
 // the build did not happen today, and Status==MARKED_AS_FAILED, the cell shows
 // 🚫 MARKED_AS_FAILED instead of ⏳ NOT_STARTED.
@@ -1473,6 +1505,38 @@ func TestEffectiveBuildLog_MarkedAsFailedNoLog(t *testing.T) {
 	if strings.Contains(out, "⏳") {
 		t.Errorf(
 			"MARKED_AS_FAILED artefact must not show ⏳, got:\n%s", out,
+		)
+	}
+}
+
+// TestEffectiveBuildLog_MarkedAsFailedWithStoredNotStarted mirrors the
+// APPROVED variant: stale BuildLog=NOT_STARTED from a prior fetch must not
+// suppress the MARKED_AS_FAILED display.
+func TestEffectiveBuildLog_MarkedAsFailedWithStoredNotStarted(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:       2,
+			Name:     "noble-preinstalled-server-arm64+tegra-jetson.img.xz",
+			OS:       "ubuntu-server",
+			Release:  "noble",
+			Version:  "20260831",
+			Status:   "MARKED_AS_FAILED",
+			BuildLog: domain.BuildStatusNotStarted, // stale value from prior fetch
+		},
+	}
+	out := FormatBuildsStatusRelease(
+		artefacts, "noble", "", domain.FailureStore{},
+	)
+	if !strings.Contains(out, "🚫") {
+		t.Errorf(
+			"expected 🚫 for MARKED_AS_FAILED with stale NOT_STARTED, got:\n%s",
+			out,
+		)
+	}
+	if strings.Contains(out, "⏳") {
+		t.Errorf(
+			"stale NOT_STARTED + MARKED_AS_FAILED must not show ⏳, got:\n%s",
+			out,
 		)
 	}
 }

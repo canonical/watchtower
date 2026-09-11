@@ -701,14 +701,19 @@ func archFromName(name string) string {
 }
 
 // effectiveBuildLog returns the effective BuildStatusState for an artefact.
-// When a BuildLog state has been set (via EnrichBuildStatus), it is returned directly.
-// Otherwise the function falls back to version-date logic:
-//   - today's version                → BUILT
-//   - no build today + APPROVED      → BuildStatusApproved (healthy final state)
-//   - no build today + MARKED_AS_FAILED → BuildStatusMarkedFailed (QA-failed)
-//   - anything else                  → NOT_STARTED (conservative fallback)
+// When a BuildLog state has been set (via EnrichBuildStatus) to a value other
+// than NOT_STARTED, it is returned directly — NOT_STARTED is treated as
+// equivalent to "no log fetched" because a prior fetch cycle may have written
+// NOT_STARTED into the snapshot (e.g. yesterday's run when today's log was a
+// 404), and on release day the QA status is the authoritative signal.
+//
+// Fallback priority:
+//   - today's version                         → BUILT
+//   - APPROVED (Status)                       → BuildStatusApproved
+//   - MARKED_AS_FAILED (Status)               → BuildStatusMarkedFailed
+//   - anything else                           → NOT_STARTED
 func effectiveBuildLog(art domain.Artefact) domain.BuildStatusState {
-	if art.BuildLog != "" {
+	if art.BuildLog != "" && art.BuildLog != domain.BuildStatusNotStarted {
 		return art.BuildLog
 	}
 	if domain.IsBuiltToday(art.Version) {
