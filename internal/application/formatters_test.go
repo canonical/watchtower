@@ -1403,3 +1403,166 @@ func TestFormatFailuresSummary_MultipleReleases(t *testing.T) {
 		t.Errorf("cross-release grouping should not happen, got:\n%s", out)
 	}
 }
+
+// --- effectiveBuildLog via FormatBuildsStatusRelease ---
+
+// TestEffectiveBuildLog_ApprovedNoLog verifies that when BuildLog is empty (no
+// log fetched), the build did not happen today, and Status==APPROVED, the cell
+// shows the ✔️ APPROVED badge instead of ⏳ NOT_STARTED.
+func TestEffectiveBuildLog_ApprovedNoLog(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:      1,
+			Name:    "noble-desktop-amd64.iso",
+			OS:      "ubuntu",
+			Release: "noble",
+			Version: yesterday, // not today
+			Status:  "APPROVED",
+			// BuildLog intentionally empty — no log fetched
+		},
+	}
+	out := FormatBuildsStatusRelease(
+		artefacts, "noble", "", domain.FailureStore{},
+	)
+	if !strings.Contains(out, "✔️") {
+		t.Errorf(
+			"expected ✔️ icon for APPROVED artefact, got:\n%s", out,
+		)
+	}
+	if !strings.Contains(out, "APPROVED") {
+		t.Errorf(
+			"expected APPROVED label in status cell, got:\n%s", out,
+		)
+	}
+	// Must NOT show NOT_STARTED for an approved artefact.
+	if strings.Contains(out, "⏳") {
+		t.Errorf(
+			"APPROVED artefact must not show ⏳ NOT_STARTED, got:\n%s", out,
+		)
+	}
+}
+
+// TestEffectiveBuildLog_MarkedAsFailedNoLog verifies that when BuildLog is empty,
+// the build did not happen today, and Status==MARKED_AS_FAILED, the cell shows
+// 🚫 MARKED_AS_FAILED instead of ⏳ NOT_STARTED.
+func TestEffectiveBuildLog_MarkedAsFailedNoLog(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:      2,
+			Name:    "noble-preinstalled-server-arm64+tegra-jetson.img.xz",
+			OS:      "ubuntu-server",
+			Release: "noble",
+			Version: "20260831",
+			Status:  "MARKED_AS_FAILED",
+			// BuildLog intentionally empty — no log fetched
+		},
+	}
+	out := FormatBuildsStatusRelease(
+		artefacts, "noble", "", domain.FailureStore{},
+	)
+	if !strings.Contains(out, "🚫") {
+		t.Errorf(
+			"expected 🚫 icon for MARKED_AS_FAILED artefact, got:\n%s", out,
+		)
+	}
+	if !strings.Contains(out, "MARKED_AS_FAILED") {
+		t.Errorf(
+			"expected MARKED_AS_FAILED label in status cell, got:\n%s", out,
+		)
+	}
+	if strings.Contains(out, "⏳") {
+		t.Errorf(
+			"MARKED_AS_FAILED artefact must not show ⏳, got:\n%s", out,
+		)
+	}
+}
+
+// TestEffectiveBuildLog_ApprovedWithBuildLogSet verifies that when BuildLog is
+// explicitly set (e.g. BUILT from today's log), the BuildLog value takes
+// precedence over the Status field even when Status==APPROVED.
+func TestEffectiveBuildLog_ApprovedWithBuildLogSet(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:       3,
+			Name:     "noble-desktop-amd64.iso",
+			OS:       "ubuntu",
+			Release:  "noble",
+			Version:  today,
+			Status:   "APPROVED",
+			BuildLog: domain.BuildStatusBuilt, // explicit log state wins
+		},
+	}
+	out := FormatBuildsStatusRelease(
+		artefacts, "noble", "", domain.FailureStore{},
+	)
+	if !strings.Contains(out, "✅") {
+		t.Errorf(
+			"BuildLog=BUILT should show ✅, got:\n%s", out,
+		)
+	}
+	// Should NOT show the approved icon since BuildLog overrides.
+	if strings.Contains(out, "✔️") {
+		t.Errorf(
+			"explicit BuildLog should override Status; must not show ✔️, got:\n%s",
+			out,
+		)
+	}
+}
+
+// TestEffectiveBuildLog_UndecidedNoLog verifies that when BuildLog is empty,
+// the build did not happen today, and Status is neither APPROVED nor
+// MARKED_AS_FAILED (e.g. UNDECIDED), the cell shows ⏳ NOT_STARTED.
+func TestEffectiveBuildLog_UndecidedNoLog(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:      4,
+			Name:    "noble-desktop-amd64.iso",
+			OS:      "ubuntu",
+			Release: "noble",
+			Version: yesterday,
+			Status:  "UNDECIDED",
+		},
+	}
+	out := FormatBuildsStatusRelease(
+		artefacts, "noble", "", domain.FailureStore{},
+	)
+	if !strings.Contains(out, "⏳") {
+		t.Errorf("expected ⏳ for UNDECIDED artefact with no log, got:\n%s", out)
+	}
+}
+
+// TestFormatBuildsStatusSummary_ApprovedAndMarkedFailedColumns verifies that
+// the summary table includes the new Approved and QA Failed columns and counts
+// APPROVED/MARKED_AS_FAILED artefacts in the correct buckets.
+func TestFormatBuildsStatusSummary_ApprovedAndMarkedFailedColumns(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{
+			ID:      1,
+			Release: "noble",
+			Version: yesterday,
+			Status:  "APPROVED",
+		},
+		{
+			ID:      2,
+			Release: "noble",
+			Version: yesterday,
+			Status:  "MARKED_AS_FAILED",
+		},
+	}
+	out := FormatBuildsStatusSummary(artefacts)
+
+	// New column headers must be present.
+	if !strings.Contains(out, "Approved") {
+		t.Errorf("summary table must include Approved column, got:\n%s", out)
+	}
+	if !strings.Contains(out, "QA Failed") {
+		t.Errorf(
+			"summary table must include QA Failed column, got:\n%s", out,
+		)
+	}
+	// noble row: 0 built, 0 in-progress, 0 failed, 0 not-started,
+	// 1 approved, 1 QA-failed, 0 unknown, 2 total.
+	if !strings.Contains(out, "noble") {
+		t.Errorf("expected noble row in output, got:\n%s", out)
+	}
+}

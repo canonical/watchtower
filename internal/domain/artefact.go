@@ -37,6 +37,15 @@ const (
 	// BuildStatusUnknown means the log fetch failed for a reason other than 404
 	// (e.g. network error, unexpected response), so status cannot be determined.
 	BuildStatusUnknown BuildStatusState = "UNKNOWN"
+	// BuildStatusApproved means no build ran today (no log / 404) but the
+	// artefact's Test Observer status is APPROVED — the image is in a healthy,
+	// finalised state. Typically seen for stable releases after release day when
+	// daily builds have stopped.
+	BuildStatusApproved BuildStatusState = "APPROVED"
+	// BuildStatusMarkedFailed means no build ran today but the artefact's Test
+	// Observer status is MARKED_AS_FAILED — QA has explicitly flagged the image
+	// as failed. The build pipeline is quiescent but the image is not approved.
+	BuildStatusMarkedFailed BuildStatusState = "MARKED_AS_FAILED"
 )
 
 // BuildFailureKind classifies the root cause of a build failure into two high-level
@@ -81,6 +90,10 @@ func BuildLogIcon(s BuildStatusState) string {
 		return "🔄"
 	case BuildStatusFailed:
 		return "❌"
+	case BuildStatusApproved:
+		return "✔️"
+	case BuildStatusMarkedFailed:
+		return "🚫"
 	default:
 		return "❓"
 	}
