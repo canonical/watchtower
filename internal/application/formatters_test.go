@@ -1630,3 +1630,54 @@ func TestFormatBuildsStatusSummary_ApprovedAndMarkedFailedColumns(t *testing.T) 
 		t.Errorf("expected noble row in output, got:\n%s", out)
 	}
 }
+
+// TestFormatBuildsStatusSummary_ApprovedCountsAsHealthy verifies that approved
+// artefacts drive the progress bar to green, not red. On release day all builds
+// stop and artefacts become APPROVED — the bar should reflect the healthy state.
+func TestFormatBuildsStatusSummary_ApprovedCountsAsHealthy(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{ID: 1, Release: "noble", Version: yesterday, Status: "APPROVED"},
+		{ID: 2, Release: "noble", Version: yesterday, Status: "APPROVED"},
+	}
+	out := FormatBuildsStatusSummary(artefacts)
+	wantBar := strings.Repeat("🟩", 10)
+	if !strings.Contains(out, wantBar) {
+		t.Errorf(
+			"all-approved release should show 100%% green bar, got:\n%s", out,
+		)
+	}
+	if strings.Contains(out, "🟥") {
+		t.Errorf(
+			"all-approved release must have no red squares, got:\n%s", out,
+		)
+	}
+}
+
+// TestFormatScheduledSummary_AllApproved verifies that when all artefacts are
+// APPROVED (release day, no builds ran), the scheduled summary shows ☀️ and
+// the heading uses "(N/N approved)" to make the state unambiguous.
+func TestFormatScheduledSummary_AllApproved(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{ID: 1, Name: "noble-desktop-amd64.iso", OS: "ubuntu",
+			Release: "noble", Version: yesterday, Status: "APPROVED",
+			BuildLog: domain.BuildStatusNotStarted},
+		{ID: 2, Name: "noble-server-amd64.iso", OS: "ubuntu-server",
+			Release: "noble", Version: yesterday, Status: "APPROVED",
+			BuildLog: domain.BuildStatusNotStarted},
+	}
+	out := FormatScheduledSummary(artefacts, []string{"noble"})
+
+	if !strings.Contains(out, "☀️") {
+		t.Errorf("all-approved release should show ☀️, got:\n%s", out)
+	}
+	if !strings.Contains(out, "approved") {
+		t.Errorf(
+			"heading should contain 'approved' label, got:\n%s", out,
+		)
+	}
+	if strings.Contains(out, "Infra") || strings.Contains(out, "Product") {
+		t.Errorf(
+			"all-approved release must have no failure sections, got:\n%s", out,
+		)
+	}
+}

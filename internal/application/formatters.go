@@ -67,9 +67,10 @@ func FormatBuildsStatusSummary(artefacts []domain.Artefact) string {
 	sb.WriteString("|---------|---------|--------------|---------|-------------|-----------|------------|---------|-------|----------|\n")
 	for _, r := range releases {
 		s := stats[r]
+		healthy := s.built + s.approved
 		pct := 0
 		if s.total > 0 {
-			pct = s.built * 100 / s.total
+			pct = healthy * 100 / s.total
 		}
 		green := pct / 10
 		red := 10 - green
@@ -411,12 +412,15 @@ func FormatScheduledSummary(artefacts []domain.Artefact, releasesScope []string)
 
 		total := len(arts)
 		built := 0
+		approved := 0
 		var infraArts, productArts []domain.Artefact
 
 		for _, art := range arts {
 			switch effectiveBuildLog(art) {
 			case domain.BuildStatusBuilt:
 				built++
+			case domain.BuildStatusApproved:
+				approved++
 			case domain.BuildStatusFailed:
 				switch art.BuildFailureKind {
 				case domain.BuildFailureKindInfra:
@@ -427,13 +431,22 @@ func FormatScheduledSummary(artefacts []domain.Artefact, releasesScope []string)
 			}
 		}
 
-		weather := buildWeatherEmoji(built, total)
+		// For weather/percentage, approved artefacts count as healthy:
+		// on release day builds stop and APPROVED is the expected final state.
+		healthy := built + approved
+		weather := buildWeatherEmoji(healthy, total)
 		buildPct := 0
 		if total > 0 {
-			buildPct = built * 100 / total
+			buildPct = healthy * 100 / total
 		}
-		fmt.Fprintf(&sb, "#### %s %s  · %d%% (%d/%d)\n",
-			release, weather, buildPct, built, total)
+		// Show built+approved in the heading so the reader knows why it's sunny.
+		if approved > 0 && built == 0 {
+			fmt.Fprintf(&sb, "#### %s %s  · %d%% (%d/%d approved)\n",
+				release, weather, buildPct, approved, total)
+		} else {
+			fmt.Fprintf(&sb, "#### %s %s  · %d%% (%d/%d)\n",
+				release, weather, buildPct, built, total)
+		}
 
 		if len(infraArts) > 0 {
 			fmt.Fprintf(&sb, "  Infra (%d): %s\n", len(infraArts), formatFailureLine(infraArts))
