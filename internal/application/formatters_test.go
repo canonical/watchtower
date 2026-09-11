@@ -322,6 +322,41 @@ func TestFormatTestsStatusSummary_NoBuildsInSnapshot(t *testing.T) {
 	}
 }
 
+// TestFormatTestsStatusSummary_Deduplication verifies that when a build has
+// multiple executions for the same test plan (e.g. a re-run / retry), only the
+// latest one is counted. Without deduplication the total would be 3 (two
+// executions of "Plan A" + one of "Plan B"); with deduplication it must be 2.
+func TestFormatTestsStatusSummary_Deduplication(t *testing.T) {
+	env := domain.Environment{Name: "jenkins", Architecture: "amd64"}
+	artefacts := []domain.Artefact{
+		{
+			ID: 1, Release: "noble", Version: today,
+			Builds: []domain.ArtefactBuild{{
+				ID: 10, Architecture: "amd64",
+				TestExecutions: []domain.TestExecution{
+					// Earlier run of Plan A — FAILED; should be superseded.
+					{ID: 100, TestPlan: "Plan A", Status: "FAILED",
+						CreatedAt: "2026-01-01T10:00:00Z", Environment: env},
+					// Later run of Plan A — PASSED; should be the one counted.
+					{ID: 101, TestPlan: "Plan A", Status: "PASSED",
+						CreatedAt: "2026-01-01T11:00:00Z", Environment: env},
+					// Single run of Plan B — PASSED.
+					{ID: 102, TestPlan: "Plan B", Status: "PASSED",
+						CreatedAt: "2026-01-01T10:00:00Z", Environment: env},
+				},
+			}},
+		},
+	}
+	out := FormatTestsStatusSummary(artefacts)
+	// After deduplication: 2 plans, both PASSED → total=2, passed=2.
+	if !strings.Contains(out, "| **noble** | 2 | 2 |") {
+		t.Errorf(
+			"expected deduplicated counts '| **noble** | 2 | 2 |', got:\n%s",
+			out,
+		)
+	}
+}
+
 // --- FormatTestsStatusRelease ---
 
 func TestFormatTestsStatusRelease_ColumnHeaders(t *testing.T) {
@@ -721,6 +756,43 @@ func TestFormatScheduledSummary_ReleaseOrderRespected(t *testing.T) {
 	}
 }
 
+// TestFormatScheduledSummary_ReleaseCaseInsensitive verifies that artefacts
+// whose Release field uses mixed capitalisation (e.g. "Noble" from the API)
+// are counted in the summary when releasesScope uses lowercase (e.g. "noble"),
+// matching the behaviour of FormatTestsStatusSummary which is case-agnostic
+// via its own stats map keying.
+func TestFormatScheduledSummary_ReleaseCaseInsensitive(t *testing.T) {
+	// API returns "Noble" (capital N); operator scope uses "noble" (lowercase).
+	artefacts := []domain.Artefact{
+		{
+			ID: 1, Name: "noble-desktop-amd64.iso", OS: "ubuntu",
+			Release: "Noble", Version: today,
+			Builds: []domain.ArtefactBuild{
+				buildWithExec(10, "amd64", []domain.TestExecution{
+					exec(100, "Plan A", "PASSED"),
+					exec(101, "Plan B", "PASSED"),
+				}),
+			},
+		},
+	}
+	out := FormatScheduledSummary(artefacts, []string{"noble"})
+
+	// Build section must appear (artefact is counted).
+	if !strings.Contains(out, "Build Summary") {
+		t.Fatalf("expected Build Summary section, got:\n%s", out)
+	}
+	// Test section must appear with correct counts: 2 passed / 2 total.
+	if !strings.Contains(out, "Test Summary") {
+		t.Errorf("expected Test Summary section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "(2/2)") {
+		t.Errorf(
+			"expected test counts (2/2) for Noble artefact with scope 'noble', got:\n%s",
+			out,
+		)
+	}
+}
+
 func TestFormatScheduledSummary_NilReleasesUsesAll(t *testing.T) {
 	artefacts := []domain.Artefact{
 		{ID: 1, Name: "noble-desktop-amd64.iso", Release: "noble", Version: today},
@@ -905,6 +977,44 @@ func TestFormatScheduledSummary_TestsPassRatePartial(t *testing.T) {
 	}
 	if !strings.Contains(out, "(3/4)") {
 		t.Errorf("expected counts (3/4), got:\n%s", out)
+	}
+}
+
+// TestFormatScheduledSummary_TestsInProgressCountedInTotal verifies that
+// IN_PROGRESS executions are included in the total (denominator) so that the
+// summary pass-rate is consistent with what `tests status` reports.
+// 2 PASSED + 1 IN_PROGRESS → 66% (2/3), not 100% (2/2).
+func TestFormatScheduledSummary_TestsInProgressCountedInTotal(t *testing.T) {
+	artefacts := []domain.Artefact{
+		{ID: 1, Name: "noble-desktop-amd64.iso", OS: "ubuntu",
+			Release: "noble", Version: today,
+			Builds: []domain.ArtefactBuild{
+				buildWithExec(10, "amd64", []domain.TestExecution{
+					exec(100, "Plan A", "PASSED"),
+					exec(101, "Plan B", "PASSED"),
+					exec(102, "Plan C", "IN_PROGRESS"),
+				}),
+			}},
+	}
+	out := FormatScheduledSummary(artefacts, []string{"noble"})
+	if !strings.Contains(out, "(2/3)") {
+		t.Errorf(
+			"expected IN_PROGRESS counted in total → (2/3), got:\n%s", out,
+		)
+	}
+	// The test summary line must not claim 100% pass rate when a test is
+	// still running. Extract only the Test Summary section to avoid matching
+	// the builds section heading which legitimately shows 100%.
+	idx := strings.Index(out, "### Test Summary")
+	if idx < 0 {
+		t.Fatalf("expected Test Summary section, got:\n%s", out)
+	}
+	testSection := out[idx:]
+	if strings.Contains(testSection, "100%") {
+		t.Errorf(
+			"test summary must not show 100%% when a test is IN_PROGRESS, got:\n%s",
+			testSection,
+		)
 	}
 }
 

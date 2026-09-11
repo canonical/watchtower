@@ -147,6 +147,29 @@ func FormatBuildsStatusRelease(
 	return sb.String()
 }
 
+// dedupLatestPerPlan filters a slice of TestExecutions to only the most recent
+// execution per test plan (by CreatedAt), discarding non-displayable entries.
+// The returned slice is in arbitrary order.
+func dedupLatestPerPlan(
+	tes []domain.TestExecution,
+) []domain.TestExecution {
+	latest := make(map[string]domain.TestExecution, len(tes))
+	for _, te := range tes {
+		if !domain.IsDisplayable(te) {
+			continue
+		}
+		prev, seen := latest[te.TestPlan]
+		if !seen || te.CreatedAt > prev.CreatedAt {
+			latest[te.TestPlan] = te
+		}
+	}
+	out := make([]domain.TestExecution, 0, len(latest))
+	for _, te := range latest {
+		out = append(out, te)
+	}
+	return out
+}
+
 // FormatTestsStatusSummary renders a summary table of test execution status across
 // all releases. Only releases that have at least one displayable test execution are
 // shown. The progress bar reflects PASSED executions as a fraction of total
@@ -164,10 +187,7 @@ func FormatTestsStatusSummary(artefacts []domain.Artefact) string {
 
 	for _, art := range artefacts {
 		for _, b := range art.Builds {
-			for _, te := range b.TestExecutions {
-				if !domain.IsDisplayable(te) {
-					continue
-				}
+			for _, te := range dedupLatestPerPlan(b.TestExecutions) {
 				s, ok := stats[art.Release]
 				if !ok {
 					s = &releaseStat{}
@@ -258,27 +278,19 @@ func FormatTestsStatusRelease(artefacts []domain.Artefact, release, product stri
 	var rows []execRow
 	for _, art := range filtered {
 		for _, b := range art.Builds {
-			// Deduplicate by test plan, keeping the latest execution per plan.
-			latest := make(map[string]domain.TestExecution)
-			for _, te := range b.TestExecutions {
-				if !domain.IsDisplayable(te) {
-					continue
-				}
-				prev, seen := latest[te.TestPlan]
-				if !seen || te.CreatedAt > prev.CreatedAt {
-					latest[te.TestPlan] = te
-				}
-			}
-			if len(latest) == 0 {
+			deduped := dedupLatestPerPlan(b.TestExecutions)
+			if len(deduped) == 0 {
 				continue
 			}
-			plans := make([]string, 0, len(latest))
-			for p := range latest {
-				plans = append(plans, p)
+			plans := make([]string, 0, len(deduped))
+			byPlan := make(map[string]domain.TestExecution, len(deduped))
+			for _, te := range deduped {
+				plans = append(plans, te.TestPlan)
+				byPlan[te.TestPlan] = te
 			}
 			sort.Strings(plans)
 			for _, plan := range plans {
-				te := latest[plan]
+				te := byPlan[plan]
 				rows = append(rows, execRow{
 					artefactName: art.Name,
 					product:      art.OS,
@@ -356,15 +368,23 @@ func FormatScheduledSummary(artefacts []domain.Artefact, releasesScope []string)
 		return "No snapshot available yet — the first fetch is still in progress."
 	}
 
-	// Group artefacts by release.
+	// Group artefacts by release, normalising to lowercase so that snapshot
+	// data from the API (e.g. "Noble") matches operator-configured scope
+	// strings (e.g. "noble") regardless of capitalisation.
 	byRelease := make(map[string][]domain.Artefact)
 	for _, art := range artefacts {
-		byRelease[art.Release] = append(byRelease[art.Release], art)
+		key := strings.ToLower(art.Release)
+		byRelease[key] = append(byRelease[key], art)
 	}
 
-	// Determine release order.
-	ordered := releasesScope
-	if len(ordered) == 0 {
+	// Determine release order, also normalised to lowercase.
+	var ordered []string
+	if len(releasesScope) > 0 {
+		ordered = make([]string, len(releasesScope))
+		for i, r := range releasesScope {
+			ordered[i] = strings.ToLower(r)
+		}
+	} else {
 		for r := range byRelease {
 			ordered = append(ordered, r)
 		}
@@ -592,7 +612,7 @@ func formatTestsSummarySection(
 			continue
 		}
 
-		passed, failed := 0, 0
+		passed, failed, total := 0, 0, 0
 		// failMap collects test failure entries keyed by artefactID+buildID
 		// to avoid double-counting.
 		type artBuildKey struct{ artID, buildID int }
@@ -600,18 +620,8 @@ func formatTestsSummarySection(
 
 		for _, art := range arts {
 			for _, b := range art.Builds {
-				// Deduplicate: keep latest CreatedAt per test plan.
-				latest := make(map[string]domain.TestExecution)
-				for _, te := range b.TestExecutions {
-					if !domain.IsDisplayable(te) {
-						continue
-					}
-					prev, seen := latest[te.TestPlan]
-					if !seen || te.CreatedAt > prev.CreatedAt {
-						latest[te.TestPlan] = te
-					}
-				}
-				for _, te := range latest {
+				for _, te := range dedupLatestPerPlan(b.TestExecutions) {
+					total++
 					switch te.Status {
 					case "PASSED":
 						passed++
@@ -632,7 +642,6 @@ func formatTestsSummarySection(
 			}
 		}
 
-		total := passed + failed
 		if total == 0 {
 			continue // no displayable executions — omit this release
 		}
